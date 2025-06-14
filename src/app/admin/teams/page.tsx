@@ -2,7 +2,7 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { useForm, type SubmitHandler, useFieldArray } from 'react-hook-form';
+import { useForm, type SubmitHandler } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import Image from 'next/image';
@@ -11,11 +11,12 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from '@/components/ui/form';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
-import { Users, Edit, Trash2, PlusCircle, UserPlus } from 'lucide-react';
-import { mockTeams as initialTeams, placeholderTeamLogo } from '@/lib/data';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from '@/components/ui/dialog';
+import { Users, Edit, Trash2, PlusCircle, UserPlus, Loader2 } from 'lucide-react';
+import { placeholderTeamLogo } from '@/lib/data';
 import type { Team, Player } from '@/types';
 import { useToast } from "@/hooks/use-toast";
+import { supabase } from '@/lib/supabaseClient'; // Import Supabase client
 
 const playerSchema = z.object({
   name: z.string().min(2, "Player name must be at least 2 characters."),
@@ -31,8 +32,22 @@ const teamSchema = z.object({
 });
 type TeamFormValues = z.infer<typeof teamSchema>;
 
+// Helper to map Supabase team data (Row) to local Team type
+const mapSupabaseTeamToLocal = (supabaseTeam: any): Team => {
+  return {
+    id: supabaseTeam.id,
+    name: supabaseTeam.name,
+    coachName: supabaseTeam.coach_name, // ensure your DB column name is coach_name
+    logoUrl: supabaseTeam.logo_url || placeholderTeamLogo(supabaseTeam.name), // ensure your DB column name is logo_url
+    players: [], // Players will be fetched/managed separately in a later step
+    created_at: supabaseTeam.created_at,
+  };
+};
+
+
 export default function AdminTeamsPage() {
-  const [teams, setTeams] = useState<Team[]>(initialTeams);
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
   const [selectedTeamForPlayers, setSelectedTeamForPlayers] = useState<Team | null>(null);
@@ -49,6 +64,26 @@ export default function AdminTeamsPage() {
     defaultValues: { name: '', shirtNumber: undefined },
   });
 
+  useEffect(() => {
+    const fetchTeams = async () => {
+      setIsLoading(true);
+      const { data, error } = await supabase
+        .from('teams')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Error fetching teams:', error);
+        toast({ variant: "destructive", title: "Error fetching teams", description: error.message });
+        setTeams([]);
+      } else {
+        setTeams(data.map(mapSupabaseTeamToLocal) || []);
+      }
+      setIsLoading(false);
+    };
+    fetchTeams();
+  }, [toast]);
+
   const handleLogoFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
@@ -56,69 +91,79 @@ export default function AdminTeamsPage() {
       const reader = new FileReader();
       reader.onloadend = () => {
         setLogoPreview(reader.result as string);
-        teamForm.setValue('logoUrl', reader.result as string); // Store as data URI for submission if no URL
+        // We don't set teamForm logoUrl here, as it's for a remote URL.
+        // The file itself will be uploaded.
       };
       reader.readAsDataURL(file);
     } else {
       setLogoPreview(null);
       teamForm.setValue('logoFile', undefined);
-      teamForm.setValue('logoUrl', ''); // Clear if file is removed
     }
   };
 
   const onTeamSubmit: SubmitHandler<TeamFormValues> = async (data) => {
     setIsSubmitting(true);
-    let finalLogoUrl = data.logoUrl || ''; // Use data URI from preview if available
+    let logoUrlToSave = placeholderTeamLogo(data.name);
 
-    if (data.logoFile && !finalLogoUrl.startsWith('data:image')) {
-      // This case should ideally not happen if preview sets data.logoUrl
-      // but as a fallback, we re-process. This is more for direct URL input.
-      finalLogoUrl = placeholderTeamLogo(data.name); // Fallback if file processing fails or URL is bad
-    } else if (!finalLogoUrl) {
-      finalLogoUrl = placeholderTeamLogo(data.name);
+    if (data.logoFile) {
+      const file = data.logoFile;
+      const fileName = `${Date.now()}_${file.name.replace(/\s/g, '_')}`;
+      const filePath = `public/${fileName}`; // Supabase storage path convention
+
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('team-logos') // MAKE SURE 'team-logos' BUCKET EXISTS AND IS PUBLICLY ACCESSIBLE or use signed URLs
+        .upload(filePath, file);
+
+      if (uploadError) {
+        console.error('Error uploading logo:', uploadError);
+        toast({ variant: "destructive", title: "Logo Upload Failed", description: uploadError.message });
+        setIsSubmitting(false);
+        return;
+      }
+      
+      const { data: publicUrlData } = supabase.storage
+        .from('team-logos')
+        .getPublicUrl(filePath);
+      
+      logoUrlToSave = publicUrlData.publicUrl;
     }
     
-    const newTeam: Team = {
-      id: `team-${Date.now()}`,
-      name: data.name,
-      coachName: data.coachName,
-      logoUrl: finalLogoUrl,
-      players: [],
-    };
-    setTeams(prevTeams => [...prevTeams, newTeam]);
-    toast({
-      title: "Team Added",
-      description: `${data.name} has been successfully added.`,
-    });
-    teamForm.reset();
-    setLogoPreview(null);
+    const { data: newTeamData, error: insertError } = await supabase
+      .from('teams')
+      .insert([{
+        name: data.name,
+        coach_name: data.coachName,
+        logo_url: logoUrlToSave,
+      }])
+      .select()
+      .single();
+
+    if (insertError) {
+      console.error('Error adding team:', insertError);
+      toast({ variant: "destructive", title: "Failed to Add Team", description: insertError.message });
+    } else if (newTeamData) {
+      setTeams(prevTeams => [mapSupabaseTeamToLocal(newTeamData), ...prevTeams]);
+      toast({
+        title: "Team Added",
+        description: `${data.name} has been successfully added.`,
+      });
+      teamForm.reset();
+      setLogoPreview(null);
+    }
     setIsSubmitting(false);
   };
 
   const onPlayerSubmit: SubmitHandler<PlayerFormValues> = (data) => {
+    // This will be implemented in a future step when connecting to a 'players' table
     if (!selectedTeamForPlayers) return;
-
-    const newPlayer: Player = {
-      id: `player-${Date.now()}`,
-      name: data.name,
-      shirtNumber: data.shirtNumber,
-    };
-
-    setTeams(prevTeams =>
-      prevTeams.map(team =>
-        team.id === selectedTeamForPlayers.id
-          ? { ...team, players: [...team.players, newPlayer] }
-          : team
-      )
-    );
-    toast({ title: "Player Added", description: `${data.name} added to ${selectedTeamForPlayers.name}.` });
+    toast({ title: "Player Management Pending", description: "Adding players via Supabase will be implemented next."});
     playerForm.reset();
     // Keep modal open to add more players or setIsPlayerModalOpen(false);
   };
   
   const openPlayerManagementModal = (team: Team) => {
     setSelectedTeamForPlayers(team);
-    playerForm.reset(); // Reset form for new player entry
+    playerForm.reset(); 
     setIsPlayerModalOpen(true);
   };
 
@@ -169,23 +214,29 @@ export default function AdminTeamsPage() {
                   </FormItem>
                 )}
               />
-              <FormItem>
-                <FormLabel>Team Logo</FormLabel>
-                <FormControl>
-                  <Input type="file" accept="image/*" onChange={handleLogoFileChange} />
-                </FormControl>
-                {logoPreview && (
-                  <div className="mt-2">
-                    <Image src={logoPreview} alt="Logo preview" width={64} height={64} className="rounded-md" data-ai-hint="logo preview"/>
-                  </div>
+              <FormField
+                control={teamForm.control}
+                name="logoFile" // This field is for the file input, not directly for a URL
+                render={({ field }) => ( // field props are not directly used for value but for RHF control
+                  <FormItem>
+                    <FormLabel>Team Logo</FormLabel>
+                    <FormControl>
+                      <Input type="file" accept="image/*" onChange={handleLogoFileChange} />
+                    </FormControl>
+                    {logoPreview && (
+                      <div className="mt-2">
+                        <Image src={logoPreview} alt="Logo preview" width={64} height={64} className="rounded-md" data-ai-hint="logo preview"/>
+                      </div>
+                    )}
+                    <FormDescription>Select an image file for the team logo. If left blank, a placeholder will be used.</FormDescription>
+                    <FormMessage />
+                  </FormItem>
                 )}
-                <FormDescription>Select an image file for the team logo. If left blank, a placeholder will be used.</FormDescription>
-                <FormMessage />
-              </FormItem>
+              />
             </CardContent>
             <CardFooter>
-              <Button type="submit" disabled={isSubmitting}>
-                {isSubmitting ? "Adding Team..." : "Add Team"}
+              <Button type="submit" disabled={isSubmitting || isLoading}>
+                {isSubmitting ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Adding Team...</> : "Add Team"}
               </Button>
             </CardFooter>
           </form>
@@ -198,59 +249,66 @@ export default function AdminTeamsPage() {
           <CardDescription>List of all teams participating in the tournament.</CardDescription>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-[80px]">Logo</TableHead>
-                <TableHead>Name</TableHead>
-                <TableHead>Coach</TableHead>
-                <TableHead>Players</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {teams.length === 0 ? (
+          {isLoading ? (
+            <div className="flex justify-center items-center h-24">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              <p className="ml-2">Loading teams...</p>
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center h-24">
-                    No teams added yet.
-                  </TableCell>
+                  <TableHead className="w-[80px]">Logo</TableHead>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Coach</TableHead>
+                  <TableHead>Players</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
-              ) : (
-                teams.map((team) => (
-                  <TableRow key={team.id}>
-                    <TableCell>
-                      <Image src={team.logoUrl} alt={`${team.name} logo`} width={40} height={40} className="rounded-full" data-ai-hint="team logo"/>
-                    </TableCell>
-                    <TableCell className="font-medium">{team.name}</TableCell>
-                    <TableCell>{team.coachName}</TableCell>
-                    <TableCell>{team.players.length}</TableCell>
-                    <TableCell className="text-right">
-                      <Button variant="outline" size="sm" className="mr-2" onClick={() => openPlayerManagementModal(team)}>
-                        <UserPlus className="mr-1 h-4 w-4" /> Manage Players
-                      </Button>
-                      <Button variant="ghost" size="icon" className="mr-2" onClick={() => alert(`Edit functionality for ${team.name} coming soon!`)}>
-                        <Edit className="h-4 w-4" />
-                        <span className="sr-only">Edit Team</span>
-                      </Button>
-                      <Button variant="ghost" size="icon" onClick={() => alert(`Delete functionality for ${team.name} coming soon!`)}>
-                        <Trash2 className="h-4 w-4" />
-                        <span className="sr-only">Delete Team</span>
-                      </Button>
+              </TableHeader>
+              <TableBody>
+                {teams.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-center h-24">
+                      No teams added yet. Add one using the form above.
                     </TableCell>
                   </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
+                ) : (
+                  teams.map((team) => (
+                    <TableRow key={team.id}>
+                      <TableCell>
+                        <Image src={team.logoUrl || placeholderTeamLogo(team.name)} alt={`${team.name} logo`} width={40} height={40} className="rounded-full" data-ai-hint="team logo"/>
+                      </TableCell>
+                      <TableCell className="font-medium">{team.name}</TableCell>
+                      <TableCell>{team.coachName}</TableCell>
+                      <TableCell>{team.players.length}</TableCell> {/* Will be 0 for now */}
+                      <TableCell className="text-right">
+                        <Button variant="outline" size="sm" className="mr-2" onClick={() => openPlayerManagementModal(team)} disabled={true}> {/* Temporarily disabled */}
+                          <UserPlus className="mr-1 h-4 w-4" /> Manage Players
+                        </Button>
+                         <Button variant="ghost" size="icon" className="mr-2" onClick={() => alert(`Edit for ${team.name} (Supabase) coming soon!`)} disabled={true}>
+                          <Edit className="h-4 w-4" />
+                          <span className="sr-only">Edit Team</span>
+                        </Button>
+                        <Button variant="ghost" size="icon" onClick={() => alert(`Delete for ${team.name} (Supabase) coming soon!`)} disabled={true}>
+                          <Trash2 className="h-4 w-4" />
+                          <span className="sr-only">Delete Team</span>
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          )}
         </CardContent>
       </Card>
 
-      {/* Player Management Modal */}
+      {/* Player Management Modal - Functionality to be connected to Supabase in a future step */}
       <Dialog open={isPlayerModalOpen} onOpenChange={setIsPlayerModalOpen}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
             <DialogTitle>Manage Players for {selectedTeamForPlayers?.name}</DialogTitle>
-            <CardDescription>Add new players to the team roster.</CardDescription>
+            <CardDescription>Add new players to the team roster. (Supabase integration pending)</CardDescription>
           </DialogHeader>
           <Form {...playerForm}>
             <form onSubmit={playerForm.handleSubmit(onPlayerSubmit)} className="space-y-4 py-4">
@@ -280,7 +338,7 @@ export default function AdminTeamsPage() {
                   </FormItem>
                 )}
               />
-              <Button type="submit">Add Player</Button>
+              <Button type="submit" disabled={true}>{/* Temporarily disabled */} Add Player (DB)</Button>
             </form>
           </Form>
           <div className="mt-4">
@@ -290,12 +348,11 @@ export default function AdminTeamsPage() {
                 {selectedTeamForPlayers.players.map(player => (
                   <li key={player.id} className="flex justify-between items-center p-1 bg-muted/50 rounded">
                     <span>{player.name} (#{player.shirtNumber})</span>
-                    {/* Future: Add delete player button here */}
                   </li>
                 ))}
               </ul>
             ) : (
-              <p className="text-sm text-muted-foreground">No players added yet.</p>
+              <p className="text-sm text-muted-foreground">No players added yet for this team.</p>
             )}
           </div>
           <DialogFooter className="mt-4">

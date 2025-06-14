@@ -2,14 +2,16 @@ export interface Player {
   id: string;
   name: string;
   shirtNumber: number;
+  team_id?: string; // Optional: if you link players to teams
 }
 
 export interface Team {
-  id: string;
+  id: string; // Will come from Supabase (UUID)
   name: string;
-  logoUrl: string; // URL to team logo placeholder
+  logoUrl: string;
   coachName: string;
-  players: Player[];
+  players: Player[]; // For now, this will be managed locally or fetched separately
+  created_at?: string; // From Supabase
 }
 
 // Base interface for all match events
@@ -46,20 +48,20 @@ export type MatchEvent = GoalEvent | CardEvent | SubstitutionEvent;
 
 export interface Match {
   id: string;
-  teamA: Team;
-  teamB: Team;
+  teamA: Team; // or teamA_id: string and fetch separately
+  teamB: Team; // or teamB_id: string and fetch separately
   dateTime: Date;
   venue: string;
   status: 'scheduled' | 'live' | 'completed';
-  lineupA?: Player[]; // Players who started or are on the bench for Team A
-  lineupB?: Player[]; // Players who started or are on the bench for Team B
+  lineupA?: Player[];
+  lineupB?: Player[];
   scoreA?: number;
   scoreB?: number;
   events?: MatchEvent[];
 }
 
 export interface GroupTeam {
-  team: Team;
+  team: Team; // or team_id: string and fetch separately
   played: number;
   won: number;
   drawn: number;
@@ -68,19 +70,19 @@ export interface GroupTeam {
   goalsAgainst: number;
   goalDifference: number;
   points: number;
-  isLive?: boolean; // Indicates if the team is currently playing a match
-  liveScore?: string; // e.g., "1-0" if team is playing
+  isLive?: boolean;
+  liveScore?: string;
 }
 
 export interface Group {
   id: string;
   name: string;
-  teams: GroupTeam[];
+  teams: GroupTeam[]; // This might become a list of team_ids or a join table
 }
 
 export interface TournamentInfo {
   name: string;
   logoUrl: string;
   about: string;
-  knockoutImageUrl?: string; // URL for the knockout stage progression image
+  knockoutImageUrl?: string;
 }

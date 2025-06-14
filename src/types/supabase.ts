@@ -15,30 +15,29 @@ export type Json =
 export interface Database {
   public: {
     Tables: {
-      // Example:
-      // teams: {
-      //   Row: { // The data expected from a SELECT statement
-      //     id: string
-      //     created_at: string
-      //     name: string
-      //     coach_name: string | null
-      //     logo_url: string | null
-      //   }
-      //   Insert: { // The data expected when inserting a new row
-      //     id?: string // Making id optional assuming it's auto-generated or a UUID
-      //     created_at?: string
-      //     name: string
-      //     coach_name?: string | null
-      //     logo_url?: string | null
-      //   }
-      //   Update: { // The data expected PMatthewhen updating a row
-      //     id?: string
-      //     created_at?: string
-      //     name?: string
-      //     coach_name?: string | null
-      //     logo_url?: string | null
-      //   }
-      // }
+      teams: {
+        Row: { // The data expected from a SELECT statement
+          id: string // Assuming UUID, auto-generated
+          created_at: string // Assuming timestamptz, auto-generated
+          name: string
+          coach_name: string | null
+          logo_url: string | null
+        }
+        Insert: { // The data expected when inserting a new row
+          id?: string // id is usually auto-generated
+          created_at?: string // created_at is usually auto-generated
+          name: string
+          coach_name?: string | null
+          logo_url?: string | null
+        }
+        Update: { // The data expected when updating a row
+          id?: string
+          created_at?: string
+          name?: string
+          coach_name?: string | null
+          logo_url?: string | null
+        }
+      }
       // Define your other tables (players, matches, groups, tournament_settings) here
       // based on your Supabase schema.
     }
@@ -60,6 +59,5 @@ export interface Database {
 
 // Helper type for global Supabase client instance
 declare global {
-  var supabaseClientInstance: SupabaseClient<Database>;
+  var supabaseClientInstance: import('@supabase/supabase-js').SupabaseClient<Database>;
 }
-
