@@ -11,6 +11,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { CalendarClock, PlusCircle, Edit } from 'lucide-react';
 import { mockMatches as initialMatches, mockTeams } from '@/lib/data';
 import type { Match, Team } from '@/types';
@@ -25,35 +26,43 @@ const matchSchema = z.object({
   venue: z.string().min(3, { message: "Venue must be at least 3 characters." }),
 }).refine(data => data.teamAId !== data.teamBId, {
   message: "Team A and Team B cannot be the same.",
-  path: ["teamBId"], // Attach error to teamBId field
+  path: ["teamBId"],
 });
-
 type MatchFormValues = z.infer<typeof matchSchema>;
+
+const updateMatchSchema = z.object({
+  scoreA: z.coerce.number().min(0).optional(),
+  scoreB: z.coerce.number().min(0).optional(),
+  status: z.enum(['scheduled', 'live', 'completed']),
+});
+type UpdateMatchFormValues = z.infer<typeof updateMatchSchema>;
 
 export default function AdminMatchesPage() {
   const [matches, setMatches] = useState<Match[]>(initialMatches);
-  const [teams] = useState<Team[]>(mockTeams); // Assuming mockTeams is static for dropdowns
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [teams] = useState<Team[]>(mockTeams);
+  const [isSubmittingMatch, setIsSubmittingMatch] = useState(false);
+  const [isUpdatingMatch, setIsUpdatingMatch] = useState(false);
+  const [selectedMatch, setSelectedMatch] = useState<Match | null>(null);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const { toast } = useToast();
 
-  const form = useForm<MatchFormValues>({
+  const scheduleForm = useForm<MatchFormValues>({
     resolver: zodResolver(matchSchema),
-    defaultValues: {
-      teamAId: '',
-      teamBId: '',
-      dateTime: '',
-      venue: '',
-    },
+    defaultValues: { teamAId: '', teamBId: '', dateTime: '', venue: '' },
   });
 
-  const onSubmit: SubmitHandler<MatchFormValues> = (data) => {
-    setIsSubmitting(true);
+  const updateForm = useForm<UpdateMatchFormValues>({
+    resolver: zodResolver(updateMatchSchema),
+  });
+
+  const onScheduleSubmit: SubmitHandler<MatchFormValues> = (data) => {
+    setIsSubmittingMatch(true);
     const teamA = teams.find(t => t.id === data.teamAId);
     const teamB = teams.find(t => t.id === data.teamBId);
 
     if (!teamA || !teamB) {
       toast({ variant: "destructive", title: "Error", description: "Selected team(s) not found." });
-      setIsSubmitting(false);
+      setIsSubmittingMatch(false);
       return;
     }
 
@@ -63,7 +72,7 @@ export default function AdminMatchesPage() {
       teamB: teamB,
       dateTime: new Date(data.dateTime),
       venue: data.venue,
-      status: 'scheduled', // New matches are always scheduled initially
+      status: 'scheduled',
       scoreA: undefined,
       scoreB: undefined,
       events: [],
@@ -71,17 +80,43 @@ export default function AdminMatchesPage() {
       lineupB: [],
     };
     setMatches(prevMatches => [...prevMatches, newMatch].sort((a, b) => new Date(a.dateTime).getTime() - new Date(b.dateTime).getTime()));
-    toast({
-      title: "Match Scheduled",
-      description: `Match between ${teamA.name} and ${teamB.name} has been scheduled.`,
+    toast({ title: "Match Scheduled", description: `Match between ${teamA.name} and ${teamB.name} has been scheduled.` });
+    scheduleForm.reset();
+    setIsSubmittingMatch(false);
+  };
+
+  const openEditModal = (match: Match) => {
+    setSelectedMatch(match);
+    updateForm.reset({
+      scoreA: match.scoreA ?? undefined,
+      scoreB: match.scoreB ?? undefined,
+      status: match.status,
     });
-    form.reset();
-    setIsSubmitting(false);
+    setIsEditModalOpen(true);
+  };
+
+  const onUpdateMatchSubmit: SubmitHandler<UpdateMatchFormValues> = (data) => {
+    if (!selectedMatch) return;
+    setIsUpdatingMatch(true);
+    
+    setMatches(prevMatches =>
+      prevMatches.map(m =>
+        m.id === selectedMatch.id
+          ? { 
+              ...m, 
+              scoreA: data.status !== 'scheduled' ? (data.scoreA ?? m.scoreA ?? 0) : undefined,
+              scoreB: data.status !== 'scheduled' ? (data.scoreB ?? m.scoreB ?? 0) : undefined,
+              status: data.status,
+            }
+          : m
+      )
+    );
+    toast({ title: "Match Updated", description: `Match details for ${selectedMatch.teamA.name} vs ${selectedMatch.teamB.name} updated.` });
+    setIsUpdatingMatch(false);
+    setIsEditModalOpen(false);
+    setSelectedMatch(null);
   };
   
-  const getTeamName = (teamId: string | undefined) => teams.find(t => t.id === teamId)?.name || 'Unknown Team';
-
-
   return (
     <div className="space-y-8">
       <div>
@@ -98,12 +133,12 @@ export default function AdminMatchesPage() {
           <CardTitle className="flex items-center"><PlusCircle className="mr-2 h-5 w-5" />Schedule New Match</CardTitle>
           <CardDescription>Define the teams, date, time, and venue for a new match.</CardDescription>
         </CardHeader>
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)}>
+        <Form {...scheduleForm}>
+          <form onSubmit={scheduleForm.handleSubmit(onScheduleSubmit)}>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <FormField
-                  control={form.control}
+                  control={scheduleForm.control}
                   name="teamAId"
                   render={({ field }) => (
                     <FormItem>
@@ -123,7 +158,7 @@ export default function AdminMatchesPage() {
                   )}
                 />
                 <FormField
-                  control={form.control}
+                  control={scheduleForm.control}
                   name="teamBId"
                   render={({ field }) => (
                     <FormItem>
@@ -144,7 +179,7 @@ export default function AdminMatchesPage() {
                 />
               </div>
               <FormField
-                control={form.control}
+                control={scheduleForm.control}
                 name="dateTime"
                 render={({ field }) => (
                   <FormItem>
@@ -157,7 +192,7 @@ export default function AdminMatchesPage() {
                 )}
               />
               <FormField
-                control={form.control}
+                control={scheduleForm.control}
                 name="venue"
                 render={({ field }) => (
                   <FormItem>
@@ -171,8 +206,8 @@ export default function AdminMatchesPage() {
               />
             </CardContent>
             <CardFooter>
-              <Button type="submit" disabled={isSubmitting}>
-                {isSubmitting ? "Scheduling..." : "Schedule Match"}
+              <Button type="submit" disabled={isSubmittingMatch}>
+                {isSubmittingMatch ? "Scheduling..." : "Schedule Match"}
               </Button>
             </CardFooter>
           </form>
@@ -216,9 +251,8 @@ export default function AdminMatchesPage() {
                       {match.status !== 'scheduled' ? `${match.scoreA ?? '-'} : ${match.scoreB ?? '-'}` : 'N/A'}
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button variant="ghost" size="icon" onClick={() => alert(`Update score for match ${match.id} coming soon!`)}>
-                        <Edit className="h-4 w-4" />
-                         <span className="sr-only">Update Score</span>
+                      <Button variant="outline" size="sm" onClick={() => openEditModal(match)}>
+                        <Edit className="h-4 w-4 mr-1" /> Edit
                       </Button>
                     </TableCell>
                   </TableRow>
@@ -228,6 +262,82 @@ export default function AdminMatchesPage() {
           </Table>
         </CardContent>
       </Card>
+
+      {/* Edit Match Modal */}
+      <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit Match: {selectedMatch?.teamA.name} vs {selectedMatch?.teamB.name}</DialogTitle>
+            <CardDescription>Update scores and status for this match.</CardDescription>
+          </DialogHeader>
+          {selectedMatch && (
+            <Form {...updateForm}>
+              <form onSubmit={updateForm.handleSubmit(onUpdateMatchSubmit)} className="space-y-4 py-2">
+                <FormField
+                  control={updateForm.control}
+                  name="status"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Status</FormLabel>
+                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select status" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="scheduled">Scheduled</SelectItem>
+                          <SelectItem value="live">Live</SelectItem>
+                          <SelectItem value="completed">Completed</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                {updateForm.watch('status') !== 'scheduled' && (
+                  <>
+                    <FormField
+                      control={updateForm.control}
+                      name="scoreA"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{selectedMatch.teamA.name} Score</FormLabel>
+                          <FormControl>
+                            <Input type="number" {...field} onChange={e => field.onChange(parseInt(e.target.value, 10) || 0)} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={updateForm.control}
+                      name="scoreB"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{selectedMatch.teamB.name} Score</FormLabel>
+                          <FormControl>
+                             <Input type="number" {...field} onChange={e => field.onChange(parseInt(e.target.value, 10) || 0)} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </>
+                )}
+                <DialogFooter className="mt-4">
+                  <DialogClose asChild>
+                    <Button type="button" variant="outline">Cancel</Button>
+                  </DialogClose>
+                  <Button type="submit" disabled={isUpdatingMatch}>
+                    {isUpdatingMatch ? "Updating..." : "Update Match"}
+                  </Button>
+                </DialogFooter>
+              </form>
+            </Form>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

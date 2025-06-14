@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -14,7 +15,7 @@ const adminLinks = [
   { href: '/admin/teams', title: 'Manage Teams', description: 'Add, edit, or remove teams and player information.', icon: Users },
   { href: '/admin/matches', title: 'Manage Matches', description: 'Schedule matches, update scores, and record match events.', icon: CalendarClock },
   { href: '/admin/groups', title: 'Manage Groups', description: 'Configure tournament groups and view standings.', icon: Trophy },
-  { href: '/admin/settings', title: 'Tournament Settings', description: 'Update general tournament information and configurations.', icon: Settings2, disabled: true },
+  { href: '/admin/settings', title: 'Tournament Settings', description: 'Update general tournament information and configurations.', icon: Settings2, disabled: false },
 ];
 
 
