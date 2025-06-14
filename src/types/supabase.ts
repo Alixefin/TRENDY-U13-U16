@@ -17,15 +17,15 @@ export interface Database {
     Tables: {
       teams: {
         Row: { // The data expected from a SELECT statement
-          id: string // Assuming UUID, auto-generated
-          created_at: string // Assuming timestamptz, auto-generated
+          id: string 
+          created_at: string 
           name: string
           coach_name: string | null
           logo_url: string | null
         }
         Insert: { // The data expected when inserting a new row
-          id?: string // id is usually auto-generated
-          created_at?: string // created_at is usually auto-generated
+          id?: string 
+          created_at?: string 
           name: string
           coach_name?: string | null
           logo_url?: string | null
@@ -38,7 +38,30 @@ export interface Database {
           logo_url?: string | null
         }
       }
-      // Define your other tables (players, matches, groups, tournament_settings) here
+      players: {
+        Row: {
+          id: string
+          created_at: string
+          name: string
+          shirt_number: number
+          team_id: string 
+        }
+        Insert: {
+          id?: string
+          created_at?: string
+          name: string
+          shirt_number: number
+          team_id: string
+        }
+        Update: {
+          id?: string
+          created_at?: string
+          name?: string
+          shirt_number?: number
+          team_id?: string
+        }
+      }
+      // Define your other tables (matches, groups, tournament_settings) here
       // based on your Supabase schema.
     }
     Views: {

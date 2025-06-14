@@ -1,38 +1,38 @@
+
 export interface Player {
-  id: string;
+  id: string; // Will come from Supabase
   name: string;
-  shirtNumber: number;
-  team_id?: string; // Optional: if you link players to teams
+  shirt_number: number; // Renamed from shirtNumber for consistency with DB
+  team_id: string; // Foreign key to teams table
+  created_at?: string;
 }
 
 export interface Team {
-  id: string; // Will come from Supabase (UUID)
+  id: string; 
   name: string;
   logoUrl: string;
   coachName: string;
-  players: Player[]; // For now, this will be managed locally or fetched separately
-  created_at?: string; // From Supabase
+  players: Player[]; // This will store players fetched for the team
+  created_at?: string; 
 }
 
 // Base interface for all match events
 export interface MatchEventBase {
-  id: string; // Unique ID for the event
-  time: string; // e.g., "45+2'"
-  teamId?: string; // ID of the team related to the event (e.g., team that scored, or player's team)
-  playerId?: string; // ID of the player primarily involved
-  playerName?: string; // Name of the player, for display convenience
+  id: string; 
+  time: string; 
+  teamId?: string; 
+  playerId?: string; 
+  playerName?: string; 
 }
 
 export interface GoalEvent extends MatchEventBase {
   type: 'goal';
-  // playerName and teamId will be set
 }
 
 export interface CardEvent extends MatchEventBase {
   type: 'card';
   cardType: 'yellow' | 'red';
-  details?: string; // Optional: reason for the card
-  // playerName and teamId will be set
+  details?: string; 
 }
 
 export interface SubstitutionEvent extends MatchEventBase {
@@ -40,16 +40,15 @@ export interface SubstitutionEvent extends MatchEventBase {
   playerInId?: string;
   playerInName?: string;
   playerOutId?: string;
-  playerOutName?: string; // 'playerName' from base could be used for playerOut for simplicity
-  // teamId will be set
+  playerOutName?: string; 
 }
 
 export type MatchEvent = GoalEvent | CardEvent | SubstitutionEvent;
 
 export interface Match {
   id: string;
-  teamA: Team; // or teamA_id: string and fetch separately
-  teamB: Team; // or teamB_id: string and fetch separately
+  teamA: Team; 
+  teamB: Team; 
   dateTime: Date;
   venue: string;
   status: 'scheduled' | 'live' | 'completed';
@@ -61,7 +60,7 @@ export interface Match {
 }
 
 export interface GroupTeam {
-  team: Team; // or team_id: string and fetch separately
+  team: Team; 
   played: number;
   won: number;
   drawn: number;
@@ -77,7 +76,7 @@ export interface GroupTeam {
 export interface Group {
   id: string;
   name: string;
-  teams: GroupTeam[]; // This might become a list of team_ids or a join table
+  teams: GroupTeam[]; 
 }
 
 export interface TournamentInfo {
