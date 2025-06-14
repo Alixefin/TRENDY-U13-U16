@@ -26,7 +26,6 @@ export default function AdminLayout({
 }) {
   const pathname = usePathname();
   const router = useRouter();
-  // For login page, we don't redirect, auth check is handled by login page itself.
   const shouldRedirect = pathname !== '/admin/login';
   const { isAuthenticated, loading, logout } = useAdminAuth(shouldRedirect);
   const isMobile = useIsMobile();
@@ -49,23 +48,19 @@ export default function AdminLayout({
   }
 
   if (!isAuthenticated && shouldRedirect) {
-    // This will be brief as the effect above should redirect.
-    // Or, you could return null and let the redirect handle it.
     return null; 
   }
   
-  // If it's the login page and user is already authenticated, redirect to dashboard
   if (pathname === '/admin/login' && isAuthenticated) {
     router.replace('/admin/dashboard');
-    return null; // Or a loading indicator
+    return null; 
   }
   
-  // Don't render admin layout for login page.
   if (pathname === '/admin/login') {
     return <>{children}</>;
   }
 
-  const AdminSidebarContent = () => (
+  const AdminSidebarContentComponent = () => (
     <>
       <div className="mb-8 px-4 pt-4">
          <Link href="/admin/dashboard">
@@ -97,23 +92,15 @@ export default function AdminLayout({
     </>
   );
 
-
-  return (
-    <div className="flex min-h-screen bg-muted/40">
-      {isMobile ? (
-        <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
-          <SheetContent side="left" className="w-72 p-0 flex flex-col bg-background">
-            <AdminSidebarContent />
-          </SheetContent>
-        </Sheet>
-      ) : (
-        <aside className="sticky top-0 h-screen w-64 border-r bg-background flex flex-col">
-          <AdminSidebarContent />
-        </aside>
-      )}
-      
-      <div className="flex-1 flex flex-col">
-        {isMobile && (
+  if (isMobile) {
+    return (
+      <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
+        <SheetContent side="left" className="w-72 p-0 flex flex-col bg-background">
+          <AdminSidebarContentComponent />
+        </SheetContent>
+        
+        {/* Main page content for mobile, including the header with the trigger */}
+        <div className="flex min-h-screen flex-col flex-1 bg-muted/40">
           <header className="sticky top-0 z-30 flex h-14 items-center gap-4 border-b bg-background px-4 sm:static sm:h-auto sm:border-0 sm:bg-transparent sm:px-6">
             <SheetTrigger asChild>
               <Button size="icon" variant="outline" className="sm:hidden">
@@ -125,12 +112,24 @@ export default function AdminLayout({
               <ThemeToggle />
             </div>
           </header>
-        )}
-         {!isMobile && (
-          <header className="sticky top-0 z-30 flex h-14 items-center justify-end gap-4 border-b bg-background px-6">
-            <ThemeToggle />
-          </header>
-        )}
+          <main className="flex-1 p-4 sm:p-6 overflow-y-auto">
+            {children}
+          </main>
+        </div>
+      </Sheet>
+    );
+  }
+
+  // Desktop layout
+  return (
+    <div className="flex min-h-screen bg-muted/40">
+      <aside className="sticky top-0 h-screen w-64 border-r bg-background flex flex-col">
+        <AdminSidebarContentComponent />
+      </aside>
+      <div className="flex-1 flex flex-col">
+        <header className="sticky top-0 z-30 flex h-14 items-center justify-end gap-4 border-b bg-background px-6">
+          <ThemeToggle />
+        </header>
         <main className="flex-1 p-4 sm:p-6 overflow-y-auto">
           {children}
         </main>
