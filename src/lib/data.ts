@@ -1,4 +1,4 @@
-import type { Team, Match, Group, TournamentInfo, Player } from '@/types';
+import type { Team, Match, Group, TournamentInfo, Player, GoalEvent, CardEvent } from '@/types';
 
 const createPlayer = (id: string, name: string, shirtNumber: number): Player => ({ id, name, shirtNumber });
 
@@ -71,6 +71,7 @@ export const mockMatches: Match[] = [
     dateTime: new Date(now.getTime() + 2 * 60 * 60 * 1000), // 2 hours from now
     venue: 'Stadium Alpha',
     status: 'scheduled',
+    events: [],
   },
   {
     id: 'match2',
@@ -84,7 +85,7 @@ export const mockMatches: Match[] = [
     lineupA: mockTeams[2].players.slice(0, 5),
     lineupB: mockTeams[3].players.slice(0, 5),
     events: [
-      { id: 'e1', type: 'goal', time: "10'", playerName: 'Ruby Fire', teamId: 'team3' },
+      { id: 'e1', type: 'goal', time: "10'", playerName: 'Ruby Fire', playerId: 'p11', teamId: 'team3' } as GoalEvent,
     ],
   },
   {
@@ -99,10 +100,10 @@ export const mockMatches: Match[] = [
     lineupA: mockTeams[0].players.slice(0, 5),
     lineupB: mockTeams[2].players.slice(0, 5),
     events: [
-      { id: 'e2', type: 'goal', time: "25'", playerName: 'Leo Green', teamId: 'team1' },
-      { id: 'e3', type: 'goal', time: "55'", playerName: 'Ruby Fire', teamId: 'team3' },
-      { id: 'e4', type: 'goal', time: "80'", playerName: 'Sam Stripes', teamId: 'team1' },
-      { id: 'e5', type: 'card', time: "60'", playerName: 'Ken Flame', details: 'Yellow Card', teamId: 'team3' },
+      { id: 'e2', type: 'goal', time: "25'", playerName: 'Leo Green', playerId: 'p1', teamId: 'team1' } as GoalEvent,
+      { id: 'e3', type: 'goal', time: "55'", playerName: 'Ruby Fire', playerId: 'p11', teamId: 'team3' } as GoalEvent,
+      { id: 'e4', type: 'goal', time: "80'", playerName: 'Sam Stripes', playerId: 'p2', teamId: 'team1' } as GoalEvent,
+      { id: 'e5', type: 'card', time: "60'", playerName: 'Ken Flame', playerId: 'p12', teamId: 'team3', cardType: 'yellow', details: 'Foul tackle' } as CardEvent,
     ],
   },
   {
@@ -112,6 +113,7 @@ export const mockMatches: Match[] = [
     dateTime: new Date(now.getTime() + 5 * 60 * 1000), // 5 minutes from now
     venue: 'Stadium Delta',
     status: 'scheduled',
+    events: [],
   },
 ];
 
@@ -140,5 +142,12 @@ export const mockGroups: Group[] = [
   },
 ];
 
-export const getMatchById = (id: string): Match | undefined => mockMatches.find(match => match.id === id);
+export const getMatchById = (id: string): Match | undefined => {
+  const match = mockMatches.find(match => match.id === id);
+  if (match) {
+    // Ensure events array exists
+    return { ...match, events: match.events || [] };
+  }
+  return undefined;
+};
 export const getTeamById = (id: string): Team | undefined => mockTeams.find(team => team.id === id);

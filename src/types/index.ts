@@ -12,14 +12,37 @@ export interface Team {
   players: Player[];
 }
 
-export interface MatchEvent {
-  id: string;
-  type: 'goal' | 'substitution' | 'card'; // card can be 'yellow' or 'red'
+// Base interface for all match events
+export interface MatchEventBase {
+  id: string; // Unique ID for the event
   time: string; // e.g., "45+2'"
-  playerName?: string;
-  teamId?: string;
-  details?: string; // e.g., "Red card for tackle" or "Sub: Player A out, Player B in"
+  teamId?: string; // ID of the team related to the event (e.g., team that scored, or player's team)
+  playerId?: string; // ID of the player primarily involved
+  playerName?: string; // Name of the player, for display convenience
 }
+
+export interface GoalEvent extends MatchEventBase {
+  type: 'goal';
+  // playerName and teamId will be set
+}
+
+export interface CardEvent extends MatchEventBase {
+  type: 'card';
+  cardType: 'yellow' | 'red';
+  details?: string; // Optional: reason for the card
+  // playerName and teamId will be set
+}
+
+export interface SubstitutionEvent extends MatchEventBase {
+  type: 'substitution';
+  playerInId?: string;
+  playerInName?: string;
+  playerOutId?: string;
+  playerOutName?: string; // 'playerName' from base could be used for playerOut for simplicity
+  // teamId will be set
+}
+
+export type MatchEvent = GoalEvent | CardEvent | SubstitutionEvent;
 
 export interface Match {
   id: string;
@@ -28,8 +51,8 @@ export interface Match {
   dateTime: Date;
   venue: string;
   status: 'scheduled' | 'live' | 'completed';
-  lineupA?: Player[];
-  lineupB?: Player[];
+  lineupA?: Player[]; // Players who started or are on the bench for Team A
+  lineupB?: Player[]; // Players who started or are on the bench for Team B
   scoreA?: number;
   scoreB?: number;
   events?: MatchEvent[];
