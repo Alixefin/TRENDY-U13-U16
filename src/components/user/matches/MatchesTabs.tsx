@@ -15,7 +15,6 @@ const MatchesTabs: React.FC<MatchesTabsProps> = ({ matches }) => {
   const [searchTerm, setSearchTerm] = useState('');
 
   const now = new Date();
-  const tenMinutesAgo = new Date(now.getTime() - 10 * 60 * 1000); // For 'live' status considering recent past
 
   const scheduledMatches = useMemo(() => 
     matches.filter(match => match.status === 'scheduled' && new Date(match.dateTime) > now && 
@@ -80,7 +79,7 @@ const MatchesTabs: React.FC<MatchesTabsProps> = ({ matches }) => {
           <TabsTrigger value="played">Played ({playedMatches.length})</TabsTrigger>
         </TabsList>
         <TabsContent value="live">
-          {renderMatchList(liveMatches, "No matches currently live.")}
+          {renderMatchList(liveMatches, "No matches currently live or matching your search.")}
         </TabsContent>
         <TabsContent value="scheduled">
           {renderMatchList(scheduledMatches, "No upcoming matches scheduled or matching your search.")}

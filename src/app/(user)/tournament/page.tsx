@@ -1,4 +1,6 @@
+
 import React from 'react';
+import Image from 'next/image';
 import TournamentHeader from '@/components/user/tournament/TournamentHeader';
 import GroupTable from '@/components/user/tournament/GroupTable';
 import { mockTournamentInfo, mockGroups } from '@/lib/data';
@@ -32,9 +34,21 @@ export default function TournamentPage() {
           <CardTitle className="font-headline text-xl">Knockout Stage Progression</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex items-center justify-center h-64 border-2 border-dashed border-muted rounded-lg bg-muted/20">
-            <p className="text-muted-foreground">Tournament progression diagram coming soon!</p>
-          </div>
+          {tournamentInfo.knockoutImageUrl ? (
+            <div className="relative w-full aspect-[16/10] md:aspect-[16/9] rounded-lg overflow-hidden border-2 border-muted bg-muted/20">
+              <Image 
+                src={tournamentInfo.knockoutImageUrl} 
+                alt="Tournament knockout stage progression diagram" 
+                layout="fill" 
+                objectFit="contain" // Use 'contain' to ensure the whole diagram is visible
+                data-ai-hint="diagram chart" 
+              />
+            </div>
+          ) : (
+            <div className="flex items-center justify-center h-64 border-2 border-dashed border-muted rounded-lg bg-muted/20">
+              <p className="text-muted-foreground">Tournament progression diagram coming soon!</p>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

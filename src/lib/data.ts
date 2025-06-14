@@ -2,7 +2,6 @@ import type { Team, Match, Group, TournamentInfo, Player, GoalEvent, CardEvent }
 
 const createPlayer = (id: string, name: string, shirtNumber: number): Player => ({ id, name, shirtNumber });
 
-const placeholderLogo = (seed: string) => `https://placehold.co/64x64/50C878/FFFFFF.png?text=${seed.substring(0,1).toUpperCase()}&font=poppins`;
 export const placeholderTeamLogo = (name: string) => `https://placehold.co/128x128/FFFFFF/50C878.png?text=${name.substring(0,2).toUpperCase()}&font=poppins`;
 
 
@@ -119,8 +118,9 @@ export const mockMatches: Match[] = [
 
 export const mockTournamentInfo: TournamentInfo = {
   name: "Trendy's U13/U16 Championship Tournament",
-  logoUrl: placeholderLogo('Trendy'), // Placeholder
+  logoUrl: placeholderTeamLogo('TT'), // Placeholder for Trendy's Tournament
   about: "Welcome to the most exciting youth championship! Trendy's U13/U16 tournament brings together the best young talents to compete for glory. Witness skill, passion, and the future stars of tomorrow. This tournament emphasizes fair play, sportsmanship, and community engagement. Join us for a festival of football!",
+  knockoutImageUrl: `https://placehold.co/800x500/F0FAF4/50C878.png?text=Knockout+Diagram&font=poppins`, // Placeholder for knockout diagram
 };
 
 export const mockGroups: Group[] = [

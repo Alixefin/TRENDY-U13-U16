@@ -82,4 +82,5 @@ export interface TournamentInfo {
   name: string;
   logoUrl: string;
   about: string;
+  knockoutImageUrl?: string; // URL for the knockout stage progression image
 }
