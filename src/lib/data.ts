@@ -3,7 +3,7 @@ import type { Team, Match, Group, TournamentInfo, Player } from '@/types';
 const createPlayer = (id: string, name: string, shirtNumber: number): Player => ({ id, name, shirtNumber });
 
 const placeholderLogo = (seed: string) => `https://placehold.co/64x64/50C878/FFFFFF.png?text=${seed.substring(0,1).toUpperCase()}&font=poppins`;
-const placeholderTeamLogo = (name: string) => `https://placehold.co/128x128/FFFFFF/50C878.png?text=${name.substring(0,2).toUpperCase()}&font=poppins`;
+export const placeholderTeamLogo = (name: string) => `https://placehold.co/128x128/FFFFFF/50C878.png?text=${name.substring(0,2).toUpperCase()}&font=poppins`;
 
 
 export const mockTeams: Team[] = [
