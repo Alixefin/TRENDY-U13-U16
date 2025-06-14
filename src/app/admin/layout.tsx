@@ -1,10 +1,11 @@
+
 "use client";
 
 import React, { useEffect } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAdminAuth } from '@/hooks/useAdminAuth';
 import { Button } from '@/components/ui/button';
-import { LayoutDashboard, LogOut, ShieldCheck, Users, CalendarClock, Trophy, Settings2 } from 'lucide-react';
+import { LayoutDashboard, LogOut, ShieldCheck, Users, CalendarClock, Trophy, Settings2, Eye } from 'lucide-react';
 import Link from 'next/link';
 import TournamentLogo from '@/components/common/TournamentLogo';
 import { ThemeToggle } from '@/components/common/ThemeToggle';
@@ -83,7 +84,13 @@ export default function AdminLayout({
           </Button>
         ))}
       </nav>
-      <div className="mt-auto p-2">
+      <div className="mt-auto p-2 space-y-1">
+        <Button variant="outline" className="w-full justify-start text-sm py-5" asChild onClick={() => isMobile && setMobileNavOpen(false)}>
+          <Link href="/matches" target="_blank" rel="noopener noreferrer">
+            <Eye className="mr-3 h-4 w-4" />
+            View User Site
+          </Link>
+        </Button>
         <Button variant="outline" className="w-full justify-start text-sm py-5" onClick={logout}>
           <LogOut className="mr-3 h-4 w-4" />
           Logout
@@ -95,11 +102,6 @@ export default function AdminLayout({
   if (isMobile) {
     return (
       <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
-        <SheetContent side="left" className="w-72 p-0 flex flex-col bg-background">
-          <AdminSidebarContentComponent />
-        </SheetContent>
-        
-        {/* Main page content for mobile, including the header with the trigger */}
         <div className="flex min-h-screen flex-col flex-1 bg-muted/40">
           <header className="sticky top-0 z-30 flex h-14 items-center gap-4 border-b bg-background px-4 sm:static sm:h-auto sm:border-0 sm:bg-transparent sm:px-6">
             <SheetTrigger asChild>
@@ -116,6 +118,9 @@ export default function AdminLayout({
             {children}
           </main>
         </div>
+        <SheetContent side="left" className="w-72 p-0 flex flex-col bg-background">
+          <AdminSidebarContentComponent />
+        </SheetContent>
       </Sheet>
     );
   }
