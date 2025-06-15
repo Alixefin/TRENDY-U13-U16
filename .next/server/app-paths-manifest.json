@@ -1,5 +1,4 @@
 {
-  "/(user)/match/[id]/page": "app/(user)/match/[id]/page.js",
   "/(user)/matches/page": "app/(user)/matches/page.js",
   "/(user)/tournament/page": "app/(user)/tournament/page.js",
   "/admin/dashboard/page": "app/admin/dashboard/page.js",
