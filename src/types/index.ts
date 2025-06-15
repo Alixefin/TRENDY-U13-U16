@@ -75,6 +75,7 @@ export interface SupabaseMatch {
 
 
 export interface GroupTeam {
+  id?: string; // ID from the group_teams table
   team: Team; 
   played: number;
   won: number;
@@ -92,6 +93,7 @@ export interface Group {
   id: string; 
   name: string; 
   teams: GroupTeam[]; 
+  created_at?: string;
 }
 
 export interface TournamentInfo {
@@ -102,4 +104,6 @@ export interface TournamentInfo {
   knockoutImageUrl?: string | null;
   updated_at?: string;
 }
+    
+
     
