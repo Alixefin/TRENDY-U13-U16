@@ -27,19 +27,27 @@ export default function AdminLayout({
 }) {
   const pathname = usePathname();
   const router = useRouter();
-  const shouldRedirect = pathname !== '/admin/login';
-  const { isAuthenticated, loading, logout } = useAdminAuth(shouldRedirect);
+  const shouldRedirectToLogin = pathname !== '/admin/login';
+  const { isAuthenticated, loading, logout } = useAdminAuth(shouldRedirectToLogin);
   const isMobile = useIsMobile();
   const [mobileNavOpen, setMobileNavOpen] = React.useState(false);
 
 
   useEffect(() => {
-    if (!loading && !isAuthenticated && shouldRedirect) {
+    if (!loading && !isAuthenticated && shouldRedirectToLogin) {
       router.replace('/admin/login');
     }
-  }, [loading, isAuthenticated, router, shouldRedirect]);
+  }, [loading, isAuthenticated, router, shouldRedirectToLogin]);
 
-  if (loading && shouldRedirect) {
+  useEffect(() => {
+    // This effect handles redirecting an authenticated user away from the login page.
+    if (!loading && isAuthenticated && pathname === '/admin/login') {
+      router.replace('/admin/dashboard');
+    }
+  }, [loading, isAuthenticated, pathname, router]);
+
+
+  if (loading && shouldRedirectToLogin) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
         <ShieldCheck className="h-16 w-16 animate-pulse text-primary" />
@@ -48,18 +56,22 @@ export default function AdminLayout({
     );
   }
 
-  if (!isAuthenticated && shouldRedirect) {
-    return null; 
+  // If not authenticated and trying to access a protected page,
+  // auth hook will redirect, so we can return null or a loader.
+  // Or, if the current page *is* the login page, let it render.
+  if (!isAuthenticated && shouldRedirectToLogin) {
+    return null;
   }
   
-  if (pathname === '/admin/login' && isAuthenticated) {
-    router.replace('/admin/dashboard');
-    return null; 
-  }
-  
+  // If we are on the login page, and the user is not yet authenticated (or still loading),
+  // render the children (which is the PinForm).
   if (pathname === '/admin/login') {
+    // If authenticated and on login page, the useEffect above will redirect.
+    // If still loading, let the PinForm (children) render.
+    // If not authenticated, let PinForm render.
     return <>{children}</>;
   }
+
 
   const AdminSidebarContentComponent = () => (
     <>
@@ -83,6 +95,17 @@ export default function AdminLayout({
             </Link>
           </Button>
         ))}
+         <Button
+            variant={pathname === '/admin/settings' ? 'secondary' : 'ghost'}
+            className="w-full justify-start text-sm py-5"
+            asChild
+            onClick={() => isMobile && setMobileNavOpen(false)}
+          >
+            <Link href="/admin/settings">
+              <Settings2 className="mr-3 h-4 w-4" />
+              Tournament Settings
+            </Link>
+          </Button>
       </nav>
       <div className="mt-auto p-2 space-y-1">
         <Button variant="outline" className="w-full justify-start text-sm py-5" asChild onClick={() => isMobile && setMobileNavOpen(false)}>
