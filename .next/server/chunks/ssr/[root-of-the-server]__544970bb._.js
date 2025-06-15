@@ -285,6 +285,7 @@ var { g: global, __dirname } = __turbopack_context__;
 {
 __turbopack_context__.s({
     "default": (()=>MatchesPage),
+    "dynamic": (()=>dynamic),
     "metadata": (()=>metadata)
 });
 var __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$server$2f$route$2d$modules$2f$app$2d$page$2f$vendored$2f$rsc$2f$react$2d$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$rsc$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/node_modules/next/dist/server/route-modules/app-page/vendored/rsc/react-jsx-dev-runtime.js [app-rsc] (ecmascript)");
@@ -295,6 +296,7 @@ var __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$data$2e$ts__$5
 ;
 ;
 ;
+const dynamic = 'force-dynamic'; // Ensures the page is always dynamically rendered
 const metadata = {
     title: "Matches | Trendy's Tournament Tracker",
     description: "View all scheduled, live, and completed matches."
@@ -308,36 +310,6 @@ const mapSupabaseTeamToLocalForUser = (supabaseTeam, players = [])=>{
         players: players
     };
 };
-const mapFetchedMatchToLocalMatch = (fetchedMatch)=>{
-    // Directly use fetched team objects which should have players if selected correctly
-    const teamA = fetchedMatch.teamA ? mapSupabaseTeamToLocalUser(fetchedMatch.teamA, fetchedMatch.teamA.players || []) : {
-        id: 'unknownA',
-        name: 'Unknown Team A',
-        logoUrl: (0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$data$2e$ts__$5b$app$2d$rsc$5d$__$28$ecmascript$29$__["placeholderTeamLogo"])('?'),
-        coachName: 'N/A',
-        players: []
-    };
-    const teamB = fetchedMatch.teamB ? mapSupabaseTeamToLocalUser(fetchedMatch.teamB, fetchedMatch.teamB.players || []) : {
-        id: 'unknownB',
-        name: 'Unknown Team B',
-        logoUrl: (0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$data$2e$ts__$5b$app$2d$rsc$5d$__$28$ecmascript$29$__["placeholderTeamLogo"])('?'),
-        coachName: 'N/A',
-        players: []
-    };
-    return {
-        id: fetchedMatch.id,
-        teamA: teamA,
-        teamB: teamB,
-        dateTime: new Date(fetchedMatch.date_time),
-        venue: fetchedMatch.venue || 'N/A',
-        status: fetchedMatch.status,
-        scoreA: fetchedMatch.score_a ?? undefined,
-        scoreB: fetchedMatch.score_b ?? undefined,
-        events: fetchedMatch.events || [],
-        lineupA: fetchedMatch.lineup_a_player_ids && teamA.players.length > 0 ? teamA.players.filter((p)=>fetchedMatch.lineup_a_player_ids.includes(p.id)) : (teamA.players || []).slice(0, 11),
-        lineupB: fetchedMatch.lineup_b_player_ids && teamB.players.length > 0 ? teamB.players.filter((p)=>fetchedMatch.lineup_b_player_ids.includes(p.id)) : (teamB.players || []).slice(0, 11)
-    };
-};
 async function getMatchesForUserPage() {
     const { data: matchesData, error: matchesError } = await __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$supabaseClient$2e$ts__$5b$app$2d$rsc$5d$__$28$ecmascript$29$__["supabase"].from('matches').select(`
       id,
@@ -349,32 +321,49 @@ async function getMatchesForUserPage() {
       events,
       lineup_a_player_ids,
       lineup_b_player_ids,
-      teamA:team_a_id (id, name, logo_url, coach_name),
-      teamB:team_b_id (id, name, logo_url, coach_name)
+      duration,
+      player_of_the_match_id,
+      teamA:team_a_id (id, name, logo_url, coach_name, players (id, name, shirt_number, team_id)),
+      teamB:team_b_id (id, name, logo_url, coach_name, players (id, name, shirt_number, team_id))
     `).order('date_time', {
         ascending: false
     });
     if (matchesError) {
         console.error("Error fetching matches for user page:", matchesError.message);
-        return []; // Return empty array on error
+        return [];
     }
     if (!matchesData) return [];
-    // Map Supabase data to our local Match[] type
     return matchesData.map((m)=>{
-        const teamA = m.teamA ? mapSupabaseTeamToLocalForUser(m.teamA) : {
+        const teamARaw = m.teamA;
+        const teamBRaw = m.teamB;
+        const teamA = teamARaw ? mapSupabaseTeamToLocalForUser(teamARaw, teamARaw.players || []) : {
             id: 'unknownA',
             name: 'Unknown Team A',
             logoUrl: (0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$data$2e$ts__$5b$app$2d$rsc$5d$__$28$ecmascript$29$__["placeholderTeamLogo"])('UA'),
-            coachName: '',
+            coachName: 'N/A',
             players: []
         };
-        const teamB = m.teamB ? mapSupabaseTeamToLocalForUser(m.teamB) : {
+        const teamB = teamBRaw ? mapSupabaseTeamToLocalForUser(teamBRaw, teamBRaw.players || []) : {
             id: 'unknownB',
             name: 'Unknown Team B',
             logoUrl: (0, __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$data$2e$ts__$5b$app$2d$rsc$5d$__$28$ecmascript$29$__["placeholderTeamLogo"])('UB'),
-            coachName: '',
+            coachName: 'N/A',
             players: []
         };
+        let lineupA = [];
+        if (m.lineup_a_player_ids && m.lineup_a_player_ids.length > 0 && teamA.players.length > 0) {
+            const lineupIdsA = new Set(m.lineup_a_player_ids);
+            lineupA = teamA.players.filter((p)=>lineupIdsA.has(p.id));
+        } else if (teamA.players.length > 0) {
+            lineupA = teamA.players.slice(0, 11);
+        }
+        let lineupB = [];
+        if (m.lineup_b_player_ids && m.lineup_b_player_ids.length > 0 && teamB.players.length > 0) {
+            const lineupIdsB = new Set(m.lineup_b_player_ids);
+            lineupB = teamB.players.filter((p)=>lineupIdsB.has(p.id));
+        } else if (teamB.players.length > 0) {
+            lineupB = teamB.players.slice(0, 11);
+        }
         return {
             id: m.id,
             teamA,
@@ -385,10 +374,10 @@ async function getMatchesForUserPage() {
             scoreA: m.score_a ?? undefined,
             scoreB: m.score_b ?? undefined,
             events: m.events || [],
-            // Lineups would typically be fetched on demand for a specific match or if small enough, included here
-            // For now, we're keeping lineups simpler for the match list view
-            lineupA: [],
-            lineupB: []
+            lineupA,
+            lineupB,
+            duration: m.duration ?? undefined,
+            playerOfTheMatchId: m.player_of_the_match_id ?? undefined
         };
     });
 }
@@ -398,7 +387,7 @@ async function MatchesPage() {
         matches: matches
     }, void 0, false, {
         fileName: "[project]/src/app/(user)/matches/page.tsx",
-        lineNumber: 106,
+        lineNumber: 103,
         columnNumber: 5
     }, this);
 }
