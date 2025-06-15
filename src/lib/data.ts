@@ -7,7 +7,7 @@ import type { Team, Match, Group, TournamentInfo, Player, GoalEvent, CardEvent }
 export const placeholderTeamLogo = (name: string) => `https://placehold.co/128x128/FFFFFF/50C878.png?text=${name.substring(0,2).toUpperCase()}&font=poppins`;
 
 // Initial player creation helper - might be useful for user-side display if not fetching full details
-const createPlayer = (id: string, name: string, shirtNumber: number, team_id: string): Player => ({ id, name, shirt_number, team_id });
+const createPlayer = (id: string, name: string, shirtNumber: number, team_id: string): Player => ({ id, name, shirt_number: shirtNumber, team_id });
 
 
 // Mock teams - kept for user-side components that might need a quick example or until they are refactored
@@ -57,7 +57,7 @@ export const mockMatches: Match[] = [
     id: 'match1-user',
     teamA: exampleTeamsForUserDisplay[0],
     teamB: exampleTeamsForUserDisplay[1],
-    dateTime: new Date(now.getTime() + 2 * 60 * 60 * 1000), 
+    dateTime: new Date(now.getTime() + 2 * 60 * 60 * 1000),
     venue: 'Stadium Alpha (User)',
     status: 'scheduled',
     events: [],
@@ -66,7 +66,7 @@ export const mockMatches: Match[] = [
     id: 'match2-user',
     teamA: exampleTeamsForUserDisplay[2],
     teamB: exampleTeamsForUserDisplay[3],
-    dateTime: new Date(now.getTime() - 15 * 60 * 1000), 
+    dateTime: new Date(now.getTime() - 15 * 60 * 1000),
     venue: 'Stadium Beta (User)',
     status: 'live',
     scoreA: 1,
@@ -81,7 +81,7 @@ export const mockMatches: Match[] = [
     id: 'match3-user',
     teamA: exampleTeamsForUserDisplay[0],
     teamB: exampleTeamsForUserDisplay[2],
-    dateTime: new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000), 
+    dateTime: new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000),
     venue: 'Stadium Gamma (User)',
     status: 'completed',
     scoreA: 2,
@@ -100,9 +100,9 @@ export const mockMatches: Match[] = [
 // Tournament Info - can remain mock for now, or be fetched from Supabase settings table
 export const mockTournamentInfo: TournamentInfo = {
   name: "Trendy's U13/U16 Championship Tournament",
-  logoUrl: placeholderTeamLogo('TT'), 
+  logoUrl: placeholderTeamLogo('TT'),
   about: "Welcome to the most exciting youth championship! Trendy's U13/U16 tournament brings together the best young talents to compete for glory. Witness skill, passion, and the future stars of tomorrow. This tournament emphasizes fair play, sportsmanship, and community engagement. Join us for a festival of football!",
-  knockoutImageUrl: `https://placehold.co/800x500/F0FAF4/50C878.png?text=Knockout+Diagram&font=poppins`, 
+  knockoutImageUrl: `https://placehold.co/800x500/F0FAF4/50C878.png?text=Knockout+Diagram&font=poppins`,
 };
 
 // Mock Groups - kept for user-facing components. Admin panel will manage via Supabase eventually.
