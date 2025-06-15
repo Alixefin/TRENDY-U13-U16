@@ -12,11 +12,12 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { CalendarClock, PlusCircle, Edit, Trash2, Goal, CreditCardIcon, Loader2 } from 'lucide-react';
 import type { Match, Team, Player, MatchEvent, GoalEvent, CardEvent, SupabaseMatch } from '@/types';
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from '@/lib/supabaseClient';
-import { placeholderTeamLogo } from '@/lib/data'; // Keep for default logo generation if needed
+import { placeholderTeamLogo } from '@/lib/data'; 
 
 const matchSchema = z.object({
   teamAId: z.string().min(1, "Please select Team A."),
@@ -38,17 +39,18 @@ const updateMatchSchema = z.object({
 });
 type UpdateMatchFormValues = z.infer<typeof updateMatchSchema>;
 
-const goalEventSchema = z.object({
-  playerId: z.string().min(1, "Select player"),
-  time: z.string().min(1, "Enter time (e.g., 45+2')"),
-});
+// Schemas for events are not directly used by RHF in this version, but good for reference
+// const goalEventSchema = z.object({
+//   playerId: z.string().min(1, "Select player"),
+//   time: z.string().min(1, "Enter time (e.g., 45+2')"),
+// });
 
-const cardEventSchema = z.object({
-  playerId: z.string().min(1, "Select player"),
-  cardType: z.enum(['yellow', 'red']),
-  time: z.string().min(1, "Enter time"),
-  details: z.string().optional(),
-});
+// const cardEventSchema = z.object({
+//   playerId: z.string().min(1, "Select player"),
+//   cardType: z.enum(['yellow', 'red']),
+//   time: z.string().min(1, "Enter time"),
+//   details: z.string().optional(),
+// });
 
 
 const mapSupabaseMatchToLocal = (sm: SupabaseMatch, teamsList: Team[]): Match => {
@@ -63,9 +65,9 @@ const mapSupabaseMatchToLocal = (sm: SupabaseMatch, teamsList: Team[]): Match =>
     status: sm.status,
     scoreA: sm.score_a ?? undefined,
     scoreB: sm.score_b ?? undefined,
-    events: (sm.events as MatchEvent[] | null) || [], // Cast events from JSONB
-    lineupA: [], // TODO: Populate from sm.lineup_a_player_ids if needed
-    lineupB: [], // TODO: Populate from sm.lineup_b_player_ids if needed
+    events: (sm.events as MatchEvent[] | null) || [], 
+    lineupA: [], 
+    lineupB: [], 
   };
 };
 
@@ -188,14 +190,12 @@ export default function AdminMatchesPage() {
   const getTeamForPlayer = (playerId: string, match: Match): Team | undefined => {
     if (match.teamA.players.some(p => p.id === playerId)) return match.teamA;
     if (match.teamB.players.some(p => p.id === playerId)) return match.teamB;
-    // Fallback if players are not fully populated on match object yet (e.g. for new matches)
     const teamA = teams.find(t => t.id === match.teamA.id);
     if (teamA?.players.some(p => p.id === playerId)) return teamA;
     const teamB = teams.find(t => t.id === match.teamB.id);
     if (teamB?.players.some(p => p.id === playerId)) return teamB;
     return undefined;
   };
-
 
   const handleAddGoal = () => {
     if (!selectedMatch || !goalPlayerId || !goalTime) {
@@ -267,6 +267,13 @@ export default function AdminMatchesPage() {
       score_b: data.status !== 'scheduled' ? (data.scoreB ?? selectedMatch.scoreB ?? 0) : null,
       status: data.status,
       events: selectedMatch.events || [],
+      // For scheduled matches, explicitly keep team IDs, date, venue from the selectedMatch
+      // This is important if the edit form for scheduled matches was more restricted.
+      // However, the current modal allows changing these too.
+      team_a_id: selectedMatch.teamA.id,
+      team_b_id: selectedMatch.teamB.id,
+      date_time: new Date(selectedMatch.dateTime).toISOString(),
+      venue: selectedMatch.venue,
     };
 
     const { data: dbData, error } = await supabase
@@ -291,6 +298,20 @@ export default function AdminMatchesPage() {
       setSelectedMatch(null);
     }
     setIsUpdatingMatch(false);
+  };
+
+  const handleDeleteMatch = async (matchId: string, matchIdentifier: string) => {
+    const { error } = await supabase
+        .from('matches')
+        .delete()
+        .eq('id', matchId);
+
+    if (error) {
+        toast({ variant: "destructive", title: `Error Deleting Match: ${matchIdentifier}`, description: error.message });
+    } else {
+        setMatches(prevMatches => prevMatches.filter(m => m.id !== matchId));
+        toast({ title: "Match Deleted", description: `Match: ${matchIdentifier} has been removed.` });
+    }
   };
   
   const availablePlayersForEvents = selectedMatch ? 
@@ -439,10 +460,44 @@ export default function AdminMatchesPage() {
                       <TableCell>
                         {match.status !== 'scheduled' ? `${match.scoreA ?? '-'} : ${match.scoreB ?? '-'}` : 'N/A'}
                       </TableCell>
-                      <TableCell className="text-right">
-                        <Button variant="outline" size="sm" onClick={() => openEditModal(match)}>
-                          <Edit className="h-4 w-4 mr-1" /> Edit
-                        </Button>
+                      <TableCell className="text-right space-x-1">
+                        {match.status === 'scheduled' && (
+                            <>
+                            <Button variant="outline" size="sm" onClick={() => openEditModal(match)}>
+                                <Edit className="h-4 w-4 mr-1" /> Edit
+                            </Button>
+                            <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                <Button variant="destructive" size="sm">
+                                    <Trash2 className="h-4 w-4 mr-1" /> Delete
+                                </Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                <AlertDialogHeader>
+                                    <AlertDialogTitle>Are you sure you want to delete this match?</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                    This action cannot be undone. This will permanently delete the match:
+                                    <br /><strong>{match.teamA.name} vs {match.teamB.name} on {new Date(match.dateTime).toLocaleDateString()}</strong>.
+                                    </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                    <AlertDialogAction
+                                    onClick={() => handleDeleteMatch(match.id, `${match.teamA.name} vs ${match.teamB.name}`)}
+                                    className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
+                                    >
+                                    Delete Match
+                                    </AlertDialogAction>
+                                </AlertDialogFooter>
+                                </AlertDialogContent>
+                            </AlertDialog>
+                            </>
+                        )}
+                         {(match.status === 'live' || match.status === 'completed') && (
+                            <Button variant="outline" size="sm" onClick={() => openEditModal(match)}>
+                                <Edit className="h-4 w-4 mr-1" /> Manage
+                            </Button>
+                         )}
                       </TableCell>
                     </TableRow>
                   ))
@@ -456,13 +511,87 @@ export default function AdminMatchesPage() {
       <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
         <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Edit Match: {selectedMatch?.teamA.name} vs {selectedMatch?.teamB.name}</DialogTitle>
+            <DialogTitle>Manage Match: {selectedMatch?.teamA.name} vs {selectedMatch?.teamB.name}</DialogTitle>
             <CardDescription>Update scores, status, and log match events. Changes will be saved to Supabase.</CardDescription>
           </DialogHeader>
           {selectedMatch && (
             <>
             <Form {...updateForm}>
               <form onSubmit={updateForm.handleSubmit(onUpdateMatchSubmit)} className="space-y-4 py-2">
+                {/* Allow editing teamA, teamB, dateTime, venue only if match is scheduled */}
+                {selectedMatch.status === 'scheduled' && (
+                    <>
+                        <FormField
+                            control={scheduleForm.control} // Note: This might ideally be a separate form or handled differently
+                            name="teamAId" // This field isn't in updateForm, needs to be handled
+                            render={({ field }) => (
+                                <FormItem>
+                                <FormLabel>Team A (Scheduled)</FormLabel>
+                                <Select 
+                                    onValueChange={(value) => {
+                                        field.onChange(value);
+                                        setSelectedMatch(prev => prev ? {...prev, teamA: teams.find(t => t.id === value) || prev.teamA} : null);
+                                    }} 
+                                    defaultValue={selectedMatch.teamA.id} 
+                                    disabled={isLoading || teams.length === 0}
+                                >
+                                    <FormControl>
+                                    <SelectTrigger><SelectValue /></SelectTrigger>
+                                    </FormControl>
+                                    <SelectContent>
+                                    {teams.map(team => (
+                                        <SelectItem key={team.id} value={team.id}>{team.name}</SelectItem>
+                                    ))}
+                                    </SelectContent>
+                                </Select>
+                                <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+                         <FormField
+                            control={scheduleForm.control} 
+                            name="teamBId" 
+                            render={({ field }) => (
+                                <FormItem>
+                                <FormLabel>Team B (Scheduled)</FormLabel>
+                                 <Select 
+                                    onValueChange={(value) => {
+                                        field.onChange(value);
+                                        setSelectedMatch(prev => prev ? {...prev, teamB: teams.find(t => t.id === value) || prev.teamB} : null);
+                                    }} 
+                                    defaultValue={selectedMatch.teamB.id} 
+                                    disabled={isLoading || teams.length === 0}
+                                >
+                                    <FormControl>
+                                    <SelectTrigger><SelectValue /></SelectTrigger>
+                                    </FormControl>
+                                    <SelectContent>
+                                    {teams.map(team => (
+                                        <SelectItem key={team.id} value={team.id} disabled={team.id === selectedMatch.teamA.id}>{team.name}</SelectItem>
+                                    ))}
+                                    </SelectContent>
+                                </Select>
+                                <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+                        <FormItem>
+                            <FormLabel>Date & Time (Scheduled)</FormLabel>
+                            <Input 
+                                type="datetime-local" 
+                                defaultValue={new Date(selectedMatch.dateTime.getTime() - selectedMatch.dateTime.getTimezoneOffset() * 60000).toISOString().slice(0, 16)}
+                                onChange={(e) => setSelectedMatch(prev => prev ? {...prev, dateTime: new Date(e.target.value)} : null)}
+                            />
+                        </FormItem>
+                        <FormItem>
+                            <FormLabel>Venue (Scheduled)</FormLabel>
+                            <Input 
+                                defaultValue={selectedMatch.venue}
+                                onChange={(e) => setSelectedMatch(prev => prev ? {...prev, venue: e.target.value} : null)}
+                            />
+                        </FormItem>
+                    </>
+                )}
                 <FormField
                   control={updateForm.control}
                   name="status"
@@ -515,7 +644,6 @@ export default function AdminMatchesPage() {
                     />
                   </div>
                 )}
-                {/* Submit for scores/status is handled by the main save button at the bottom now */}
               </form>
             </Form>
             
@@ -584,7 +712,7 @@ export default function AdminMatchesPage() {
                 </DialogClose>
                 <Button 
                     type="button" 
-                    onClick={() => updateForm.handleSubmit(onUpdateMatchSubmit)()} // Trigger RHF submit
+                    onClick={() => updateForm.handleSubmit(onUpdateMatchSubmit)()} 
                     disabled={isUpdatingMatch}
                 >
                     {isUpdatingMatch ? <><Loader2 className="mr-2 h-4 w-4 animate-spin"/> Saving All Changes...</> : "Save All Changes"}
@@ -597,5 +725,7 @@ export default function AdminMatchesPage() {
     </div>
   );
 }
+
+    
 
     
