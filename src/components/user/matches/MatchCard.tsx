@@ -1,4 +1,7 @@
-import React from 'react';
+
+"use client";
+
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import type { Match } from '@/types';
@@ -14,6 +17,19 @@ interface MatchCardProps {
 const MatchCard: React.FC<MatchCardProps> = ({ match }) => {
   const { teamA, teamB, dateTime, venue, status, scoreA, scoreB } = match;
 
+  const [displayDateTime, setDisplayDateTime] = useState<string>('Loading date...');
+
+  useEffect(() => {
+    const dateObj = new Date(dateTime);
+    const formattedDate = dateObj.toLocaleDateString(undefined, {
+      weekday: 'short', month: 'short', day: 'numeric'
+    });
+    const formattedTime = dateObj.toLocaleTimeString(undefined, {
+      hour: '2-digit', minute: '2-digit'
+    });
+    setDisplayDateTime(`${formattedDate}, ${formattedTime}`);
+  }, [dateTime]);
+
   const getStatusIcon = () => {
     switch (status) {
       case 'scheduled':
@@ -27,14 +43,13 @@ const MatchCard: React.FC<MatchCardProps> = ({ match }) => {
     }
   };
 
-  const formattedDate = new Date(dateTime).toLocaleDateString(undefined, {
-    weekday: 'short', month: 'short', day: 'numeric'
-  });
-  const formattedTime = new Date(dateTime).toLocaleTimeString(undefined, {
-    hour: '2-digit', minute: '2-digit'
-  });
+  const showLineupCutoff = new Date(new Date(dateTime).getTime() - 10 * 60 * 1000); // 10 minutes before kickoff
+  const [isClient, setIsClient] = useState(false);
 
-  const showLineupCutoff = new Date(dateTime.getTime() - 10 * 60 * 1000); // 10 minutes before kickoff
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
+
 
   return (
     <Card className="w-full shadow-lg hover:shadow-xl transition-shadow duration-300">
@@ -63,10 +78,10 @@ const MatchCard: React.FC<MatchCardProps> = ({ match }) => {
             ) : (
               <div className="text-xl font-bold text-muted-foreground">vs</div>
             )}
-             {status === 'scheduled' && new Date() < showLineupCutoff && (
-               <CountdownTimer targetDate={dateTime} />
+             {isClient && status === 'scheduled' && new Date() < showLineupCutoff && (
+               <CountdownTimer targetDate={new Date(dateTime)} />
              )}
-             {status === 'scheduled' && new Date() >= showLineupCutoff && new Date() < dateTime && (
+             {isClient && status === 'scheduled' && new Date() >= showLineupCutoff && new Date() < new Date(dateTime) && (
                 <p className="text-xs text-primary mt-1">Lineups soon!</p>
              )}
           </div>
@@ -76,7 +91,7 @@ const MatchCard: React.FC<MatchCardProps> = ({ match }) => {
           </div>
         </div>
         <div className="text-center text-xs text-muted-foreground flex items-center justify-center">
-            <Clock className="h-3 w-3 mr-1" /> {formattedDate}, {formattedTime}
+            <Clock className="h-3 w-3 mr-1" /> {displayDateTime}
         </div>
       </CardContent>
       <CardFooter>

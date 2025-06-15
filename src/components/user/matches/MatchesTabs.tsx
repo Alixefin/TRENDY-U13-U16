@@ -1,6 +1,7 @@
+
 "use client";
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import type { Match } from '@/types';
 import MatchCard from './MatchCard';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -13,37 +14,43 @@ interface MatchesTabsProps {
 
 const MatchesTabs: React.FC<MatchesTabsProps> = ({ matches }) => {
   const [searchTerm, setSearchTerm] = useState('');
+  const [clientNow, setClientNow] = useState<Date | null>(null);
 
-  const now = new Date();
+  useEffect(() => {
+    setClientNow(new Date());
+  }, []);
 
-  const scheduledMatches = useMemo(() => 
-    matches.filter(match => match.status === 'scheduled' && new Date(match.dateTime) > now && 
-      (match.teamA.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+  const scheduledMatches = useMemo(() => {
+    if (!clientNow) return []; // Return empty or all matches initially until clientNow is set
+    return matches.filter(match => match.status === 'scheduled' && new Date(match.dateTime) > clientNow &&
+      (match.teamA.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
        match.teamB.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
        match.venue.toLowerCase().includes(searchTerm.toLowerCase())))
-    .sort((a, b) => new Date(a.dateTime).getTime() - new Date(b.dateTime).getTime()),
-    [matches, searchTerm, now]
-  );
+    .sort((a, b) => new Date(a.dateTime).getTime() - new Date(b.dateTime).getTime());
+  }, [matches, searchTerm, clientNow]);
 
-  const liveMatches = useMemo(() => 
-    matches.filter(match => match.status === 'live' && 
-      (match.teamA.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+  const liveMatches = useMemo(() =>
+    matches.filter(match => match.status === 'live' &&
+      (match.teamA.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
        match.teamB.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
        match.venue.toLowerCase().includes(searchTerm.toLowerCase())))
     .sort((a, b) => new Date(a.dateTime).getTime() - new Date(b.dateTime).getTime()),
     [matches, searchTerm]
   );
 
-  const playedMatches = useMemo(() => 
-    matches.filter(match => match.status === 'completed' && 
-      (match.teamA.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+  const playedMatches = useMemo(() =>
+    matches.filter(match => match.status === 'completed' &&
+      (match.teamA.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
        match.teamB.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
        match.venue.toLowerCase().includes(searchTerm.toLowerCase())))
     .sort((a, b) => new Date(b.dateTime).getTime() - new Date(a.dateTime).getTime()), // Show most recent first
     [matches, searchTerm]
   );
-  
+
   const renderMatchList = (matchList: Match[], emptyMessage: string) => {
+    if (!clientNow && matchList === scheduledMatches) { // Specifically for scheduled matches before clientNow is set
+        return <p className="text-center text-muted-foreground py-8">Loading scheduled matches...</p>;
+    }
     if (matchList.length === 0) {
       return <p className="text-center text-muted-foreground py-8">{emptyMessage}</p>;
     }
@@ -60,10 +67,10 @@ const MatchesTabs: React.FC<MatchesTabsProps> = ({ matches }) => {
     <div className="container mx-auto py-8 px-4">
       <h1 className="text-3xl font-headline font-bold mb-2 text-center md:text-left">Match Center</h1>
       <p className="text-muted-foreground mb-6 text-center md:text-left">Stay updated with all scheduled, live, and completed matches.</p>
-      
+
       <div className="mb-6 relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-        <Input 
+        <Input
           type="text"
           placeholder="Search matches by team or venue..."
           value={searchTerm}
