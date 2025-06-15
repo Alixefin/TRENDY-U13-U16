@@ -1,7 +1,8 @@
-
 // This file will be used for Supabase generated types.
 // You can generate these types from your Supabase dashboard or using the Supabase CLI.
 // For example, npx supabase gen types typescript --project-id your-project-id > src/types/supabase.ts
+// The content below is a more detailed placeholder based on the provided SQL schema.
+// **ALWAYS run the CLI command after applying schema changes to get the most accurate types.**
 
 export type Json =
   | string
@@ -11,179 +12,180 @@ export type Json =
   | { [key: string]: Json | undefined }
   | Json[]
 
+export type MatchStatusEnum = "scheduled" | "live" | "completed";
+
 export interface Database {
   public: {
     Tables: {
       teams: {
         Row: {
-          id: string
-          created_at: string
-          name: string
-          coach_name: string | null
-          logo_url: string | null
+          id: string // uuid
+          created_at: string // timestamptz
+          name: string // text
+          coach_name: string | null // text
+          logo_url: string | null // text
         }
         Insert: {
-          id?: string
-          created_at?: string
-          name: string
-          coach_name?: string | null
-          logo_url?: string | null
+          id?: string // uuid
+          created_at?: string // timestamptz
+          name: string // text
+          coach_name?: string | null // text
+          logo_url?: string | null // text
         }
         Update: {
-          id?: string
-          created_at?: string
-          name?: string
-          coach_name?: string | null
-          logo_url?: string | null
+          id?: string // uuid
+          created_at?: string // timestamptz
+          name?: string // text
+          coach_name?: string | null // text
+          logo_url?: string | null // text
         }
       }
       players: {
         Row: {
-          id: string
-          created_at: string
-          name: string
-          shirt_number: number
-          team_id: string
+          id: string // uuid
+          created_at: string // timestamptz
+          name: string // text
+          shirt_number: number // int2
+          team_id: string // uuid
         }
         Insert: {
-          id?: string
-          created_at?: string
-          name: string
-          shirt_number: number
-          team_id: string
+          id?: string // uuid
+          created_at?: string // timestamptz
+          name: string // text
+          shirt_number: number // int2
+          team_id: string // uuid
         }
         Update: {
-          id?: string
-          created_at?: string
-          name?: string
-          shirt_number?: number
-          team_id?: string
+          id?: string // uuid
+          created_at?: string // timestamptz
+          name?: string // text
+          shirt_number?: number // int2
+          team_id?: string // uuid
         }
       }
       matches: {
         Row: {
-          id: string
-          created_at: string
-          team_a_id: string
-          team_b_id: string
+          id: string // uuid
+          created_at: string // timestamptz
+          team_a_id: string // uuid
+          team_b_id: string // uuid
           date_time: string // timestamptz
-          venue: string | null
-          status: "scheduled" | "live" | "completed" // Consider using an ENUM in Supabase
-          score_a: number | null
-          score_b: number | null
-          events: Json | null // For storing match events array
-          lineup_a_player_ids: string[] | null // Array of player UUIDs
-          lineup_b_player_ids: string[] | null // Array of player UUIDs
+          venue: string | null // text
+          status: MatchStatusEnum // match_status_enum
+          score_a: number | null // int2
+          score_b: number | null // int2
+          events: Json | null // jsonb
+          lineup_a_player_ids: string[] | null // uuid[]
+          lineup_b_player_ids: string[] | null // uuid[]
         }
         Insert: {
-          id?: string
-          created_at?: string
-          team_a_id: string
-          team_b_id: string
-          date_time: string
-          venue?: string | null
-          status: "scheduled" | "live" | "completed"
-          score_a?: number | null
-          score_b?: number | null
-          events?: Json | null
-          lineup_a_player_ids?: string[] | null
-          lineup_b_player_ids?: string[] | null
+          id?: string // uuid
+          created_at?: string // timestamptz
+          team_a_id: string // uuid
+          team_b_id: string // uuid
+          date_time: string // timestamptz
+          venue?: string | null // text
+          status?: MatchStatusEnum // match_status_enum
+          score_a?: number | null // int2
+          score_b?: number | null // int2
+          events?: Json | null // jsonb
+          lineup_a_player_ids?: string[] | null // uuid[]
+          lineup_b_player_ids?: string[] | null // uuid[]
         }
         Update: {
-          id?: string
-          created_at?: string
-          team_a_id?: string
-          team_b_id?: string
-          date_time?: string
-          venue?: string | null
-          status?: "scheduled" | "live" | "completed"
-          score_a?: number | null
-          score_b?: number | null
-          events?: Json | null
-          lineup_a_player_ids?: string[] | null
-          lineup_b_player_ids?: string[] | null
+          id?: string // uuid
+          created_at?: string // timestamptz
+          team_a_id?: string // uuid
+          team_b_id?: string // uuid
+          date_time?: string // timestamptz
+          venue?: string | null // text
+          status?: MatchStatusEnum // match_status_enum
+          score_a?: number | null // int2
+          score_b?: number | null // int2
+          events?: Json | null // jsonb
+          lineup_a_player_ids?: string[] | null // uuid[]
+          lineup_b_player_ids?: string[] | null // uuid[]
         }
       }
       groups: {
         Row: {
-          id: string
-          created_at: string
-          name: string
+          id: string // uuid
+          created_at: string // timestamptz
+          name: string // text (unique)
         }
         Insert: {
-          id?: string
-          created_at?: string
-          name: string
+          id?: string // uuid
+          created_at?: string // timestamptz
+          name: string // text
         }
         Update: {
-          id?: string
-          created_at?: string
-          name?: string
+          id?: string // uuid
+          created_at?: string // timestamptz
+          name?: string // text
         }
       }
-      group_teams: { // Junction table for group standings
+      group_teams: {
         Row: {
-          id: string
-          group_id: string
-          team_id: string
-          played: number
-          won: number
-          drawn: number
-          lost: number
-          goals_for: number
-          goals_against: number
-          points: number
-          // goal_difference can be a generated column in Supabase or calculated in app
+          id: string // uuid
+          group_id: string // uuid
+          team_id: string // uuid
+          played: number // int2
+          won: number // int2
+          drawn: number // int2
+          lost: number // int2
+          goals_for: number // int2
+          goals_against: number // int2
+          points: number // int2
         }
         Insert: {
-          id?: string
-          group_id: string
-          team_id: string
-          played?: number
-          won?: number
-          drawn?: number
-          lost?: number
-          goals_for?: number
-          goals_against?: number
-          points?: number
+          id?: string // uuid
+          group_id: string // uuid
+          team_id: string // uuid
+          played?: number // int2
+          won?: number // int2
+          drawn?: number // int2
+          lost?: number // int2
+          goals_for?: number // int2
+          goals_against?: number // int2
+          points?: number // int2
         }
         Update: {
-          id?: string
-          group_id?: string
-          team_id?: string
-          played?: number
-          won?: number
-          drawn?: number
-          lost?: number
-          goals_for?: number
-          goals_against?: number
-          points?: number
+          id?: string // uuid
+          group_id?: string // uuid
+          team_id?: string // uuid
+          played?: number // int2
+          won?: number // int2
+          drawn?: number // int2
+          lost?: number // int2
+          goals_for?: number // int2
+          goals_against?: number // int2
+          points?: number // int2
         }
       }
       tournament_settings: {
         Row: {
-          id: number // Using a fixed ID like 1 for a single settings row
-          name: string
-          about: string | null
-          logo_url: string | null
-          knockout_image_url: string | null
-          updated_at: string
+          id: number // int2, primary key, default 1
+          name: string // text
+          about: string | null // text
+          logo_url: string | null // text
+          knockout_image_url: string | null // text
+          updated_at: string // timestamptz
         }
         Insert: {
-          id: number // Must provide the fixed ID on insert
-          name: string
-          about?: string | null
-          logo_url?: string | null
-          knockout_image_url?: string | null
-          updated_at?: string
+          id: 1 // Must be 1
+          name?: string // text
+          about?: string | null // text
+          logo_url?: string | null // text
+          knockout_image_url?: string | null // text
+          updated_at?: string // timestamptz
         }
         Update: {
-          id?: number
-          name?: string
-          about?: string | null
-          logo_url?: string | null
-          knockout_image_url?: string | null
-          updated_at?: string
+          id?: 1
+          name?: string // text
+          about?: string | null // text
+          logo_url?: string | null // text
+          knockout_image_url?: string | null // text
+          updated_at?: string // timestamptz
         }
       }
     }
@@ -191,10 +193,13 @@ export interface Database {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      moddatetime_on_settings_update: {
+        Args: {}
+        Returns: unknown // trigger type
+      }
     }
     Enums: {
-      match_status_enum: "scheduled" | "live" | "completed" // Example if you create an ENUM
+      match_status_enum: MatchStatusEnum
     }
     CompositeTypes: {
       [_ in never]: never
@@ -206,5 +211,3 @@ export interface Database {
 declare global {
   var supabaseClientInstance: import('@supabase/supabase-js').SupabaseClient<Database>;
 }
-
-    
