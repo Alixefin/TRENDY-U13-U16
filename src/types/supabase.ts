@@ -1,8 +1,3 @@
-// This file will be used for Supabase generated types.
-// You can generate these types from your Supabase dashboard or using the Supabase CLI.
-// For example, npx supabase gen types typescript --project-id your-project-id > src/types/supabase.ts
-// The content below is a more detailed placeholder based on the provided SQL schema.
-// **ALWAYS run the CLI command after applying schema changes to get the most accurate types.**
 
 export type Json =
   | string
@@ -19,174 +14,218 @@ export interface Database {
     Tables: {
       teams: {
         Row: {
-          id: string // uuid
-          created_at: string // timestamptz
-          name: string // text
-          coach_name: string | null // text
-          logo_url: string | null // text
+          id: string
+          created_at: string
+          name: string
+          coach_name: string | null
+          logo_url: string | null
         }
         Insert: {
-          id?: string // uuid
-          created_at?: string // timestamptz
-          name: string // text
-          coach_name?: string | null // text
-          logo_url?: string | null // text
+          id?: string
+          created_at?: string
+          name: string
+          coach_name?: string | null
+          logo_url?: string | null
         }
         Update: {
-          id?: string // uuid
-          created_at?: string // timestamptz
-          name?: string // text
-          coach_name?: string | null // text
-          logo_url?: string | null // text
+          id?: string
+          created_at?: string
+          name?: string
+          coach_name?: string | null
+          logo_url?: string | null
         }
+        Relationships: []
       }
       players: {
         Row: {
-          id: string // uuid
-          created_at: string // timestamptz
-          name: string // text
-          shirt_number: number // int2
-          team_id: string // uuid
+          id: string
+          created_at: string
+          name: string
+          shirt_number: number
+          team_id: string
         }
         Insert: {
-          id?: string // uuid
-          created_at?: string // timestamptz
-          name: string // text
-          shirt_number: number // int2
-          team_id: string // uuid
+          id?: string
+          created_at?: string
+          name: string
+          shirt_number: number
+          team_id: string
         }
         Update: {
-          id?: string // uuid
-          created_at?: string // timestamptz
-          name?: string // text
-          shirt_number?: number // int2
-          team_id?: string // uuid
+          id?: string
+          created_at?: string
+          name?: string
+          shirt_number?: number
+          team_id?: string
         }
+        Relationships: [
+          {
+            foreignKeyName: "players_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          }
+        ]
       }
       matches: {
         Row: {
-          id: string // uuid
-          created_at: string // timestamptz
-          team_a_id: string // uuid
-          team_b_id: string // uuid
-          date_time: string // timestamptz
-          venue: string | null // text
-          status: MatchStatusEnum // match_status_enum
-          score_a: number | null // int2
-          score_b: number | null // int2
-          events: Json | null // jsonb
-          lineup_a_player_ids: string[] | null // uuid[]
-          lineup_b_player_ids: string[] | null // uuid[]
+          id: string
+          created_at: string
+          team_a_id: string
+          team_b_id: string
+          date_time: string
+          venue: string | null
+          status: MatchStatusEnum
+          score_a: number | null
+          score_b: number | null
+          events: Json | null
+          lineup_a_player_ids: string[] | null
+          lineup_b_player_ids: string[] | null
         }
         Insert: {
-          id?: string // uuid
-          created_at?: string // timestamptz
-          team_a_id: string // uuid
-          team_b_id: string // uuid
-          date_time: string // timestamptz
-          venue?: string | null // text
-          status?: MatchStatusEnum // match_status_enum
-          score_a?: number | null // int2
-          score_b?: number | null // int2
-          events?: Json | null // jsonb
-          lineup_a_player_ids?: string[] | null // uuid[]
-          lineup_b_player_ids?: string[] | null // uuid[]
+          id?: string
+          created_at?: string
+          team_a_id: string
+          team_b_id: string
+          date_time: string
+          venue?: string | null
+          status?: MatchStatusEnum
+          score_a?: number | null
+          score_b?: number | null
+          events?: Json | null
+          lineup_a_player_ids?: string[] | null
+          lineup_b_player_ids?: string[] | null
         }
         Update: {
-          id?: string // uuid
-          created_at?: string // timestamptz
-          team_a_id?: string // uuid
-          team_b_id?: string // uuid
-          date_time?: string // timestamptz
-          venue?: string | null // text
-          status?: MatchStatusEnum // match_status_enum
-          score_a?: number | null // int2
-          score_b?: number | null // int2
-          events?: Json | null // jsonb
-          lineup_a_player_ids?: string[] | null // uuid[]
-          lineup_b_player_ids?: string[] | null // uuid[]
+          id?: string
+          created_at?: string
+          team_a_id?: string
+          team_b_id?: string
+          date_time?: string
+          venue?: string | null
+          status?: MatchStatusEnum
+          score_a?: number | null
+          score_b?: number | null
+          events?: Json | null
+          lineup_a_player_ids?: string[] | null
+          lineup_b_player_ids?: string[] | null
         }
+        Relationships: [
+          {
+            foreignKeyName: "matches_team_a_id_fkey"
+            columns: ["team_a_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "matches_team_b_id_fkey"
+            columns: ["team_b_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          }
+        ]
       }
       groups: {
         Row: {
-          id: string // uuid
-          created_at: string // timestamptz
-          name: string // text (unique)
+          id: string
+          created_at: string
+          name: string
         }
         Insert: {
-          id?: string // uuid
-          created_at?: string // timestamptz
-          name: string // text
+          id?: string
+          created_at?: string
+          name: string
         }
         Update: {
-          id?: string // uuid
-          created_at?: string // timestamptz
-          name?: string // text
+          id?: string
+          created_at?: string
+          name?: string
         }
+        Relationships: []
       }
       group_teams: {
         Row: {
-          id: string // uuid
-          group_id: string // uuid
-          team_id: string // uuid
-          played: number // int2
-          won: number // int2
-          drawn: number // int2
-          lost: number // int2
-          goals_for: number // int2
-          goals_against: number // int2
-          points: number // int2
+          id: string
+          group_id: string
+          team_id: string
+          played: number
+          won: number
+          drawn: number
+          lost: number
+          goals_for: number
+          goals_against: number
+          points: number
         }
         Insert: {
-          id?: string // uuid
-          group_id: string // uuid
-          team_id: string // uuid
-          played?: number // int2
-          won?: number // int2
-          drawn?: number // int2
-          lost?: number // int2
-          goals_for?: number // int2
-          goals_against?: number // int2
-          points?: number // int2
+          id?: string
+          group_id: string
+          team_id: string
+          played?: number
+          won?: number
+          drawn?: number
+          lost?: number
+          goals_for?: number
+          goals_against?: number
+          points?: number
         }
         Update: {
-          id?: string // uuid
-          group_id?: string // uuid
-          team_id?: string // uuid
-          played?: number // int2
-          won?: number // int2
-          drawn?: number // int2
-          lost?: number // int2
-          goals_for?: number // int2
-          goals_against?: number // int2
-          points?: number // int2
+          id?: string
+          group_id?: string
+          team_id?: string
+          played?: number
+          won?: number
+          drawn?: number
+          lost?: number
+          goals_for?: number
+          goals_against?: number
+          points?: number
         }
+        Relationships: [
+          {
+            foreignKeyName: "group_teams_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "groups"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "group_teams_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          }
+        ]
       }
       tournament_settings: {
         Row: {
-          id: number // int2, primary key, default 1
-          name: string // text
-          about: string | null // text
-          logo_url: string | null // text
-          knockout_image_url: string | null // text
-          updated_at: string // timestamptz
+          id: number
+          name: string
+          about: string | null
+          logo_url: string | null
+          knockout_image_url: string | null
+          updated_at: string
         }
         Insert: {
-          id: 1 // Must be 1
-          name?: string // text
-          about?: string | null // text
-          logo_url?: string | null // text
-          knockout_image_url?: string | null // text
-          updated_at?: string // timestamptz
+          id: 1
+          name?: string
+          about?: string | null
+          logo_url?: string | null
+          knockout_image_url?: string | null
+          updated_at?: string
         }
         Update: {
           id?: 1
-          name?: string // text
-          about?: string | null // text
-          logo_url?: string | null // text
-          knockout_image_url?: string | null // text
-          updated_at?: string // timestamptz
+          name?: string
+          about?: string | null
+          logo_url?: string | null
+          knockout_image_url?: string | null
+          updated_at?: string
         }
+        Relationships: []
       }
     }
     Views: {
@@ -194,8 +233,8 @@ export interface Database {
     }
     Functions: {
       moddatetime_on_settings_update: {
-        Args: {}
-        Returns: unknown // trigger type
+        Args: Record<string, unknown>
+        Returns: unknown // Typically 'trigger' but simplified here
       }
     }
     Enums: {
