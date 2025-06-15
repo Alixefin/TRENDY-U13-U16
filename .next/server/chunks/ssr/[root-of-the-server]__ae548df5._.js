@@ -814,16 +814,18 @@ const getMatchById = async (id)=>{
       events,
       lineup_a_player_ids,
       lineup_b_player_ids,
+      duration,
+      player_of_the_match_id,
       teamA:team_a_id (id, name, logo_url, coach_name, players (id, name, shirt_number, team_id, created_at)),
-      teamB:team_b_id (id, name, logo_url, coach_name, players (id, name, shirt_number, team_id, created_at))
+      teamB:team_b_id (id, name, logo_url, coach_name, players (id, name, shirt_number, team_id, created_at)),
+      playerOfTheMatch:player_of_the_match_id (id, name, shirt_number, team_id)
     `).eq('id', id).single();
     if (error) {
         console.error(`Error fetching match by ID (${id}):`, error.message);
-        if (error.code === 'PGRST116') return null; // PostgREST error for "JSON object requested, multiple (or no) rows returned"
-        return undefined; // Other errors
+        if (error.code === 'PGRST116') return null;
+        return undefined;
     }
     if (!matchData) return null;
-    // Type assertion for teamA and teamB based on the select query structure
     const teamARaw = matchData.teamA;
     const teamBRaw = matchData.teamB;
     const teamA = teamARaw ? mapSupabaseTeamToLocalUser(teamARaw, teamARaw.players || []) : {
@@ -840,22 +842,28 @@ const getMatchById = async (id)=>{
         coachName: 'N/A',
         players: []
     };
-    // Determine lineups
     let lineupA = [];
-    if (matchData.lineup_a_player_ids && teamA.players.length > 0) {
-        const lineupIds = new Set(matchData.lineup_a_player_ids);
-        lineupA = teamA.players.filter((p)=>lineupIds.has(p.id));
+    if (matchData.lineup_a_player_ids && matchData.lineup_a_player_ids.length > 0 && teamA.players.length > 0) {
+        const lineupIdsA = new Set(matchData.lineup_a_player_ids);
+        lineupA = teamA.players.filter((p)=>lineupIdsA.has(p.id));
     } else if (teamA.players.length > 0) {
-    // Fallback lineup if specific IDs not provided or players not fetched properly
-    // lineupA = teamA.players.slice(0, 11);
+        // Fallback: use first 11 players from roster if specific lineup IDs aren't set
+        lineupA = teamA.players.slice(0, 11);
     }
     let lineupB = [];
-    if (matchData.lineup_b_player_ids && teamB.players.length > 0) {
-        const lineupIds = new Set(matchData.lineup_b_player_ids);
-        lineupB = teamB.players.filter((p)=>lineupIds.has(p.id));
+    if (matchData.lineup_b_player_ids && matchData.lineup_b_player_ids.length > 0 && teamB.players.length > 0) {
+        const lineupIdsB = new Set(matchData.lineup_b_player_ids);
+        lineupB = teamB.players.filter((p)=>lineupIdsB.has(p.id));
     } else if (teamB.players.length > 0) {
-    // lineupB = teamB.players.slice(0, 11);
+        // Fallback: use first 11 players from roster
+        lineupB = teamB.players.slice(0, 11);
     }
+    const playerOfTheMatch = matchData.playerOfTheMatch ? {
+        id: matchData.playerOfTheMatch.id,
+        name: matchData.playerOfTheMatch.name,
+        shirt_number: matchData.playerOfTheMatch.shirt_number,
+        team_id: matchData.playerOfTheMatch.team_id
+    } : undefined;
     return {
         id: matchData.id,
         teamA,
@@ -867,7 +875,10 @@ const getMatchById = async (id)=>{
         scoreB: matchData.score_b ?? undefined,
         events: matchData.events || [],
         lineupA,
-        lineupB
+        lineupB,
+        duration: matchData.duration ?? undefined,
+        playerOfTheMatchId: matchData.player_of_the_match_id ?? undefined,
+        playerOfTheMatch: playerOfTheMatch
     };
 };
 const mockTournamentInfo = {

@@ -14,7 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { CalendarClock, PlusCircle, Edit, Trash2, Goal, CreditCardIcon, Loader2, Users, Award } from 'lucide-react';
+import { CalendarClock, PlusCircle, Edit, Trash2, Goal, CreditCardIcon, Loader2, Users, Award, Hourglass } from 'lucide-react';
 import type { Match, Team, Player, MatchEvent, GoalEvent, CardEvent, SubstitutionEvent, SupabaseMatch } from '@/types';
 import type { Tables } from '@/types/supabase';
 import { useToast } from "@/hooks/use-toast";
@@ -53,7 +53,6 @@ const mapSupabaseMatchToLocal = (sm: SupabaseMatch, teamsList: Team[], allPlayer
   if (sm.player_of_the_match_id && allPlayers) {
     playerOfTheMatchObject = allPlayers.find(p => p.id === sm.player_of_the_match_id);
   }
-
 
   return {
     id: sm.id,
@@ -197,7 +196,6 @@ export default function AdminMatchesPage() {
       duration: match.duration ?? undefined,
       playerOfTheMatchId: match.playerOfTheMatchId ?? undefined,
     });
-    // Reset event form fields
     setGoalPlayerId(''); setGoalTime('');
     setCardPlayerId(''); setCardType('yellow'); setCardTime(''); setCardDetails('');
     setSubPlayerOutId(''); setSubPlayerInId(''); setSubTime('');
@@ -205,11 +203,8 @@ export default function AdminMatchesPage() {
   };
   
   const getTeamForPlayer = (playerId: string, match: Match): Team | undefined => {
-    // Check fully populated teams first if available (e.g., from selectedMatch, which should have them)
     if (match.teamA?.players?.some(p => p.id === playerId)) return match.teamA;
     if (match.teamB?.players?.some(p => p.id === playerId)) return match.teamB;
-  
-    // Fallback to general teams list (less ideal as players might not be specific to this match's context)
     const teamAFromList = teams.find(t => t.id === match.teamA.id);
     if (teamAFromList?.players.some(p => p.id === playerId)) return teamAFromList;
     const teamBFromList = teams.find(t => t.id === match.teamB.id);
@@ -217,32 +212,19 @@ export default function AdminMatchesPage() {
     return undefined;
   };
 
-
   const handleAddGoal = () => {
     if (!selectedMatch || !goalPlayerId || !goalTime) {
       toast({ variant: "destructive", title: "Error", description: "Player and time are required for a goal." });
       return;
     }
-    
     const playerTeam = getTeamForPlayer(goalPlayerId, selectedMatch);
-    if (!playerTeam) {
-         toast({ variant: "destructive", title: "Error", description: "Could not determine player's team." });
-         return;
-    }
+    if (!playerTeam) { toast({ variant: "destructive", title: "Error", description: "Could not determine player's team." }); return; }
     const player = playerTeam.players.find(p => p.id === goalPlayerId);
-    if (!player) {
-      toast({ variant: "destructive", title: "Error", description: "Player not found in team." });
-      return;
-    }
-
+    if (!player) { toast({ variant: "destructive", title: "Error", description: "Player not found in team." }); return; }
 
     const newGoalEvent: GoalEvent = {
       id: `event-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-      type: 'goal',
-      time: goalTime,
-      playerId: player.id,
-      playerName: player.name,
-      teamId: playerTeam.id,
+      type: 'goal', time: goalTime, playerId: player.id, playerName: player.name, teamId: playerTeam.id,
     };
     setSelectedMatch(prev => prev ? ({ ...prev, events: [...(prev.events || []), newGoalEvent] }) : null);
     setGoalPlayerId(''); setGoalTime('');
@@ -254,17 +236,10 @@ export default function AdminMatchesPage() {
       toast({ variant: "destructive", title: "Error", description: "Player, card type, and time are required." });
       return;
     }
-    
     const playerTeam = getTeamForPlayer(cardPlayerId, selectedMatch);
-     if (!playerTeam) {
-         toast({ variant: "destructive", title: "Error", description: "Could not determine player's team." });
-         return;
-    }
+    if (!playerTeam) { toast({ variant: "destructive", title: "Error", description: "Could not determine player's team." }); return; }
     const player = playerTeam.players.find(p => p.id === cardPlayerId);
-    if (!player) {
-        toast({ variant: "destructive", title: "Error", description: "Player not found in team." });
-        return;
-    }
+    if (!player) { toast({ variant: "destructive", title: "Error", description: "Player not found in team." }); return; }
     
     let finalCardType = cardType;
     if (cardType === 'yellow') {
@@ -272,20 +247,14 @@ export default function AdminMatchesPage() {
         event => event.type === 'card' && (event as CardEvent).cardType === 'yellow' && event.playerId === cardPlayerId
       ).length || 0;
       if (existingYellowCards >= 1) {
-        finalCardType = 'red'; // Automatically make it a red card
+        finalCardType = 'red'; 
         toast({ title: "Second Yellow", description: `${player.name} received a second yellow. Recorded as Red Card.`});
       }
     }
 
     const newCardEvent: CardEvent = {
       id: `event-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-      type: 'card',
-      cardType: finalCardType,
-      time: cardTime,
-      playerId: player.id,
-      playerName: player.name,
-      details: cardDetails,
-      teamId: playerTeam.id,
+      type: 'card', cardType: finalCardType, time: cardTime, playerId: player.id, playerName: player.name, details: cardDetails, teamId: playerTeam.id,
     };
     setSelectedMatch(prev => prev ? ({ ...prev, events: [...(prev.events || []), newCardEvent] }) : null);
     setCardPlayerId(''); setCardTime(''); setCardType('yellow'); setCardDetails('');
@@ -296,34 +265,22 @@ export default function AdminMatchesPage() {
 
   const handleAddSubstitution = () => {
     if (!selectedMatch || !subPlayerOutId || !subPlayerInId || !subTime) {
-      toast({ variant: "destructive", title: "Error", description: "Player Out, Player In, and Time are required." });
-      return;
+      toast({ variant: "destructive", title: "Error", description: "Player Out, Player In, and Time are required." }); return;
     }
     if (subPlayerOutId === subPlayerInId) {
-      toast({ variant: "destructive", title: "Error", description: "Player In and Player Out cannot be the same." });
-      return;
+      toast({ variant: "destructive", title: "Error", description: "Player In and Player Out cannot be the same." }); return;
     }
-
     const teamPlayerOut = getTeamForPlayer(subPlayerOutId, selectedMatch);
     const playerOut = teamPlayerOut?.players.find(p => p.id === subPlayerOutId);
-
     const teamPlayerIn = getTeamForPlayer(subPlayerInId, selectedMatch);
     const playerIn = teamPlayerIn?.players.find(p => p.id === subPlayerInId);
-
     if (!playerOut || !playerIn ) {
-      toast({ variant: "destructive", title: "Error", description: "Could not find player(s) for substitution." });
-      return;
+      toast({ variant: "destructive", title: "Error", description: "Could not find player(s) for substitution." }); return;
     }
-
     const newSubEvent: SubstitutionEvent = {
       id: `event-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-      type: 'substitution',
-      time: subTime,
-      playerOutId: playerOut.id,
-      playerOutName: playerOut.name,
-      playerInId: playerIn.id,
-      playerInName: playerIn.name,
-      teamId: teamPlayerOut?.id, // Assuming substitution is for playerOut's team primary
+      type: 'substitution', time: subTime, playerOutId: playerOut.id, playerOutName: playerOut.name,
+      playerInId: playerIn.id, playerInName: playerIn.name, teamId: teamPlayerOut?.id,
     };
     setSelectedMatch(prev => prev ? ({ ...prev, events: [...(prev.events || []), newSubEvent] }) : null);
     setSubPlayerOutId(''); setSubPlayerInId(''); setSubTime('');
@@ -334,99 +291,154 @@ export default function AdminMatchesPage() {
     setSelectedMatch(prev => prev ? ({ ...prev, events: prev.events?.filter(event => event.id !== eventId) }) : null);
     toast({ title: "Event Removed (Locally)", description: "Save changes to persist."});
   };
+  
+  const getOutcomeDelta = (score: number, opponentScore: number, increment: 1 | -1) => {
+    let dWon = 0, dDrawn = 0, dLost = 0, dPoints = 0;
+    if (score > opponentScore) {
+      dWon = increment;
+      dPoints = 3 * increment;
+    } else if (score < opponentScore) {
+      dLost = increment;
+    } else {
+      dDrawn = increment;
+      dPoints = 1 * increment;
+    }
+    return { dWon, dDrawn, dLost, dPoints };
+  };
 
-  const updateGroupStandings = useCallback(async (
+  const syncGroupStandingsForMatch = useCallback(async (
     teamAId: string,
     teamBId: string,
-    finalScoreA: number,
-    finalScoreB: number
+    newScoreA: number,
+    newScoreB: number,
+    newStatus: Match['status'],
+    oldMatchDetails: { scoreA?: number, scoreB?: number, status: Match['status'] }
   ) => {
     try {
+      let standingsActuallyUpdated = false;
       const teamsToProcess = [
-        { teamId: teamAId, matchScore: finalScoreA, opponentMatchScore: finalScoreB },
-        { teamId: teamBId, matchScore: finalScoreB, opponentMatchScore: finalScoreA },
+        { teamId: teamAId, currentScore: newScoreA, opponentScore: newScoreB, oldScore: oldMatchDetails.scoreA, oldOpponentScore: oldMatchDetails.scoreB },
+        { teamId: teamBId, currentScore: newScoreB, opponentScore: newScoreA, oldScore: oldMatchDetails.scoreB, oldOpponentScore: oldMatchDetails.scoreA },
       ];
 
-      let standingsActuallyUpdated = false;
-
-      for (const { teamId, matchScore, opponentMatchScore } of teamsToProcess) {
+      for (const { teamId, currentScore, opponentScore, oldScore, oldOpponentScore } of teamsToProcess) {
         const { data: groupTeamEntries, error: fetchError } = await supabase
           .from('group_teams')
           .select('*')
           .eq('team_id', teamId);
 
         if (fetchError) {
-          console.error(`Error fetching group standings for team ${teamId}: ${fetchError.message}`);
-          toast({ variant: "destructive", title: "Standings Fetch Error", description: `Could not fetch standings for team ID ${teamId}. This team's standings were not updated.` });
-          continue; 
+          console.error(`Standings Sync: Error fetching group standings for team ${teamId}: ${fetchError.message}`);
+          continue;
         }
         
         if (groupTeamEntries && groupTeamEntries.length > 0) {
           for (const groupTeamEntry of groupTeamEntries) {
-            const updates: Partial<Tables<'group_teams'>> = {
-              played: (groupTeamEntry.played || 0) + 1,
-              goals_for: (groupTeamEntry.goals_for || 0) + matchScore,
-              goals_against: (groupTeamEntry.goals_against || 0) + opponentMatchScore,
-              points: groupTeamEntry.points || 0,
+            const updates: Partial<Tables<'group_teams'>> & { played: number; goals_for: number; goals_against: number; won: number; drawn: number; lost: number; points: number } = {
+              played: groupTeamEntry.played || 0,
+              goals_for: groupTeamEntry.goals_for || 0,
+              goals_against: groupTeamEntry.goals_against || 0,
               won: groupTeamEntry.won || 0,
               drawn: groupTeamEntry.drawn || 0,
               lost: groupTeamEntry.lost || 0,
+              points: groupTeamEntry.points || 0,
             };
+            let needsDbUpdate = false;
 
-            if (matchScore > opponentMatchScore) { 
-              updates.won = (updates.won || 0) + 1;
-              updates.points = (updates.points || 0) + 3;
-            } else if (matchScore < opponentMatchScore) { 
-              updates.lost = (updates.lost || 0) + 1;
-            } else { 
-              updates.drawn = (updates.drawn || 0) + 1;
-              updates.points = (updates.points || 0) + 1;
+            // If the match was previously completed, reverse its impact
+            if (oldMatchDetails.status === 'completed') {
+              needsDbUpdate = true;
+              updates.played -= 1;
+              updates.goals_for -= (oldScore ?? 0);
+              updates.goals_against -= (oldOpponentScore ?? 0);
+              const oldOutcome = getOutcomeDelta(oldScore ?? 0, oldOpponentScore ?? 0, -1);
+              updates.won += oldOutcome.dWon;
+              updates.drawn += oldOutcome.dDrawn;
+              updates.lost += oldOutcome.dLost;
+              updates.points += oldOutcome.dPoints;
             }
 
-            const { error: updateError } = await supabase
-              .from('group_teams')
-              .update(updates)
-              .eq('id', groupTeamEntry.id); 
+            // If the match is now completed, apply its new impact
+            if (newStatus === 'completed') {
+              needsDbUpdate = true;
+              updates.played += 1;
+              updates.goals_for += currentScore;
+              updates.goals_against += opponentScore;
+              const newOutcome = getOutcomeDelta(currentScore, opponentScore, 1);
+              updates.won += newOutcome.dWon;
+              updates.drawn += newOutcome.dDrawn;
+              updates.lost += newOutcome.dLost;
+              updates.points += newOutcome.dPoints;
+            }
+            
+            if (needsDbUpdate) {
+              // Ensure stats don't go negative
+              updates.played = Math.max(0, updates.played);
+              updates.won = Math.max(0, updates.won);
+              updates.drawn = Math.max(0, updates.drawn);
+              updates.lost = Math.max(0, updates.lost);
+              updates.points = Math.max(0, updates.points);
+              updates.goals_for = Math.max(0, updates.goals_for);
+              updates.goals_against = Math.max(0, updates.goals_against);
 
-            if (updateError) {
-              console.error(`Error updating group standings for team ${teamId} (group_team_id: ${groupTeamEntry.id}): ${updateError.message}`);
-              toast({ variant: "destructive", title: "Standings Update Error", description: `Failed to update standings for team ID ${teamId}.` });
-            } else {
-              standingsActuallyUpdated = true;
+
+              const { error: updateError } = await supabase
+                .from('group_teams')
+                .update({
+                  played: updates.played,
+                  won: updates.won,
+                  drawn: updates.drawn,
+                  lost: updates.lost,
+                  goals_for: updates.goals_for,
+                  goals_against: updates.goals_against,
+                  points: updates.points,
+                })
+                .eq('id', groupTeamEntry.id);
+
+              if (updateError) {
+                console.error(`Standings Sync: Error updating group standings for team ${teamId} (entry ${groupTeamEntry.id}): ${updateError.message}`);
+                toast({ variant: "destructive", title: "Standings Update Error", description: `Failed to update standings for team ID ${teamId}.` });
+              } else {
+                standingsActuallyUpdated = true;
+              }
             }
           }
         }
       }
       if (standingsActuallyUpdated) {
-         toast({ title: "Group Standings Updated", description: "Relevant group standings have been recalculated based on the match result." });
+         toast({ title: "Group Standings Synchronized", description: "Relevant group standings have been updated." });
       }
     } catch (error: any) {
-      console.error("Unexpected error in updateGroupStandings logic:", error);
+      console.error("Standings Sync: Unexpected error:", error);
       toast({ variant: "destructive", title: "Standings Logic Error", description: error.message || "An unexpected error occurred while updating standings." });
     }
-  }, [toast]);
+  }, [toast, supabase]);
 
 
   const onUpdateMatchSubmit: SubmitHandler<UpdateMatchFormValues> = async (data) => {
     if (!selectedMatch) return;
     setIsUpdatingMatch(true);
     
+    const oldMatchDetails = { 
+      scoreA: selectedMatch.scoreA, 
+      scoreB: selectedMatch.scoreB, 
+      status: selectedMatch.status 
+    };
+
     const updatedMatchPayload: Partial<SupabaseMatch> = {
       score_a: (data.status !== 'scheduled' && data.status !== 'halftime') ? (data.scoreA ?? selectedMatch.scoreA ?? 0) : null,
       score_b: (data.status !== 'scheduled' && data.status !== 'halftime') ? (data.scoreB ?? selectedMatch.scoreB ?? 0) : null,
       status: data.status,
       events: selectedMatch.events || [],
       duration: data.duration,
-      player_of_the_match_id: data.playerOfTheMatchId || null,
+      player_of_the_match_id: data.playerOfTheMatchId === "NONE_SELECTED_POTM_VALUE" ? null : data.playerOfTheMatchId || null,
     };
-     // Only update these if match is still scheduled, otherwise they are fixed
     if (selectedMatch.status === 'scheduled') {
         updatedMatchPayload.team_a_id = selectedMatch.teamA.id;
         updatedMatchPayload.team_b_id = selectedMatch.teamB.id;
         updatedMatchPayload.date_time = new Date(selectedMatch.dateTime).toISOString();
         updatedMatchPayload.venue = selectedMatch.venue;
     }
-
 
     const { data: updatedMatchFromDb, error } = await supabase
       .from('matches')
@@ -449,11 +461,14 @@ export default function AdminMatchesPage() {
       
       toast({ title: "Match Updated", description: `Match details for ${selectedMatch.teamA.name} vs ${selectedMatch.teamB.name} updated.` });
       
-      if (updatedMatchFromDb.status === 'completed') {
-        const finalScoreA = updatedMatchFromDb.score_a ?? 0;
-        const finalScoreB = updatedMatchFromDb.score_b ?? 0;
-        await updateGroupStandings(selectedMatch.teamA.id, selectedMatch.teamB.id, finalScoreA, finalScoreB);
-      }
+      await syncGroupStandingsForMatch(
+        selectedMatch.teamA.id,
+        selectedMatch.teamB.id,
+        updatedMatchFromDb.score_a ?? 0,
+        updatedMatchFromDb.score_b ?? 0,
+        updatedMatchFromDb.status,
+        oldMatchDetails
+      );
       
       setIsEditModalOpen(false);
       setSelectedMatch(null);
@@ -693,7 +708,7 @@ export default function AdminMatchesPage() {
             <CardDescription>Update scores, status, and log match events.</CardDescription>
           </DialogHeader>
           {selectedMatch && (
-            <ScrollArea className="max-h-[calc(90vh-150px)] pr-6"> {/* pr-6 for scrollbar space */}
+            <ScrollArea className="max-h-[calc(90vh-150px)] pr-6">
             <Form {...updateForm}>
               <form onSubmit={updateForm.handleSubmit(onUpdateMatchSubmit)} className="space-y-4 py-2">
                 {selectedMatch.status === 'scheduled' && (
@@ -930,7 +945,7 @@ export default function AdminMatchesPage() {
                  <Select onValueChange={setSubPlayerOutId} value={subPlayerOutId}>
                     <SelectTrigger><SelectValue placeholder="Select Player Out" /></SelectTrigger>
                     <SelectContent>
-                        {playersForEventsAndPOTM.filter(p => playersOnField.has(p.id)).map(p => ( // Only players currently on field
+                        {playersForEventsAndPOTM.filter(p => playersOnField.has(p.id)).map(p => ( 
                              <SelectItem key={p.id} value={p.id}>{p.name} ({p.shirt_number}) - {selectedMatch.teamA.players.some(pl => pl.id === p.id) ? selectedMatch.teamA.name : selectedMatch.teamB.name}</SelectItem>
                         ))}
                     </SelectContent>
@@ -938,7 +953,7 @@ export default function AdminMatchesPage() {
                  <Select onValueChange={setSubPlayerInId} value={subPlayerInId}>
                     <SelectTrigger><SelectValue placeholder="Select Player In" /></SelectTrigger>
                     <SelectContent>
-                        {allAvailableSubstitutes.map(p => ( // Players not on field
+                        {allAvailableSubstitutes.map(p => ( 
                              <SelectItem key={p.id} value={p.id}>{p.name} ({p.shirt_number}) - {selectedMatch.teamA.players.some(pl => pl.id === p.id) ? selectedMatch.teamA.name : selectedMatch.teamB.name}</SelectItem>
                         ))}
                     </SelectContent>
