@@ -10,7 +10,7 @@ import Link from 'next/link';
 import TournamentLogo from '@/components/common/TournamentLogo';
 import { ThemeToggle } from '@/components/common/ThemeToggle';
 import { useIsMobile } from '@/hooks/use-is-mobile';
-import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
+import { Sheet, SheetContent, SheetTrigger, SheetTitle } from '@/components/ui/sheet'; // Added SheetTitle
 import { Menu } from 'lucide-react';
 
 const adminNavItems = [
@@ -34,20 +34,17 @@ export default function AdminLayout({
 
 
   useEffect(() => {
-    if (!loading && !isAuthenticated && shouldRedirectToLogin) {
-      router.replace('/admin/login');
+    if (!loading) {
+      if (!isAuthenticated && shouldRedirectToLogin) {
+        router.replace('/admin/login');
+      } else if (isAuthenticated && pathname === '/admin/login') {
+        router.replace('/admin/dashboard');
+      }
     }
-  }, [loading, isAuthenticated, router, shouldRedirectToLogin]);
-
-  useEffect(() => {
-    // This effect handles redirecting an authenticated user away from the login page.
-    if (!loading && isAuthenticated && pathname === '/admin/login') {
-      router.replace('/admin/dashboard');
-    }
-  }, [loading, isAuthenticated, pathname, router]);
+  }, [loading, isAuthenticated, router, pathname, shouldRedirectToLogin]);
 
 
-  if (loading && shouldRedirectToLogin) {
+  if (loading && shouldRedirectToLogin && !pathname.startsWith('/admin/login')) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
         <ShieldCheck className="h-16 w-16 animate-pulse text-primary" />
@@ -55,28 +52,26 @@ export default function AdminLayout({
       </div>
     );
   }
-
-  // If not authenticated and trying to access a protected page,
-  // auth hook will redirect, so we can return null or a loader.
-  // Or, if the current page *is* the login page, let it render.
-  if (!isAuthenticated && shouldRedirectToLogin) {
-    return null;
+  
+  if (!isAuthenticated && shouldRedirectToLogin && !pathname.startsWith('/admin/login')) {
+    return null; // Redirect is being handled by useEffect
   }
   
-  // If we are on the login page, and the user is not yet authenticated (or still loading),
-  // render the children (which is the PinForm).
+  // Allow login page to render if not authenticated or still loading
   if (pathname === '/admin/login') {
-    // If authenticated and on login page, the useEffect above will redirect.
-    // If still loading, let the PinForm (children) render.
-    // If not authenticated, let PinForm render.
+     // If authenticated, useEffect will redirect from login.
+     // Otherwise, render PinForm (children).
     return <>{children}</>;
   }
 
 
   const AdminSidebarContentComponent = () => (
     <>
+      {/* Accessible Title for the Sheet, only for screen readers */}
+      <SheetTitle className="sr-only">Admin Navigation Menu</SheetTitle>
+
       <div className="mb-8 px-4 pt-4">
-         <Link href="/admin/dashboard">
+         <Link href="/admin/dashboard" onClick={() => isMobile && setMobileNavOpen(false)}>
             <TournamentLogo appName="Admin Panel" />
          </Link>
       </div>
@@ -114,7 +109,7 @@ export default function AdminLayout({
             View User Site
           </Link>
         </Button>
-        <Button variant="outline" className="w-full justify-start text-sm py-5" onClick={logout}>
+        <Button variant="outline" className="w-full justify-start text-sm py-5" onClick={() => { logout(); if (isMobile) setMobileNavOpen(false);}}>
           <LogOut className="mr-3 h-4 w-4" />
           Logout
         </Button>
