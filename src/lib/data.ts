@@ -1,17 +1,11 @@
 
 import type { Team, Match, Group, TournamentInfo, Player, GoalEvent, CardEvent } from '@/types';
 
-// This file will now primarily hold mock data for USER-FACING components
-// or initial structures if needed. Admin panel will fetch from Supabase.
-
 export const placeholderTeamLogo = (name: string) => `https://placehold.co/128x128/FFFFFF/50C878.png?text=${name.substring(0,2).toUpperCase()}&font=poppins`;
 
-// Initial player creation helper - might be useful for user-side display if not fetching full details
 const createPlayer = (id: string, name: string, shirtNumber: number, team_id: string): Player => ({ id, name, shirt_number: shirtNumber, team_id });
 
-
-// Mock teams - kept for user-side components that might need a quick example or until they are refactored
-// Admin panel should NOT use this.
+// Mock teams for user-facing components - Admin panel fetches from Supabase.
 export const exampleTeamsForUserDisplay: Team[] = [
   {
     id: 'user-team1',
@@ -51,7 +45,7 @@ export const exampleTeamsForUserDisplay: Team[] = [
 
 const now = new Date();
 
-// Mock matches - kept for user-facing components. Admin panel fetches from Supabase.
+// Mock matches for user-facing components. Admin panel fetches from Supabase.
 export const mockMatches: Match[] = [
   {
     id: 'match1-user',
@@ -97,15 +91,17 @@ export const mockMatches: Match[] = [
   },
 ];
 
-// Tournament Info - can remain mock for now, or be fetched from Supabase settings table
+// Fallback Tournament Info for components not yet refactored or if Supabase fails.
+// Admin panel and key user pages fetch live data from Supabase.
 export const mockTournamentInfo: TournamentInfo = {
-  name: "Trendy's U13/U16 Championship Tournament",
+  id: 1, // Default ID
+  name: "Trendy's U13/U16 Championship (Fallback)",
   logoUrl: placeholderTeamLogo('TT'),
-  about: "Welcome to the most exciting youth championship! Trendy's U13/U16 tournament brings together the best young talents to compete for glory. Witness skill, passion, and the future stars of tomorrow. This tournament emphasizes fair play, sportsmanship, and community engagement. Join us for a festival of football!",
+  about: "Welcome to the most exciting youth championship! Trendy's U13/U16 tournament brings together the best young talents to compete for glory. (This is fallback data).",
   knockoutImageUrl: `https://placehold.co/800x500/F0FAF4/50C878.png?text=Knockout+Diagram&font=poppins`,
 };
 
-// Mock Groups - kept for user-facing components. Admin panel will manage via Supabase eventually.
+// Mock Groups for user-facing components. Admin panel will manage via Supabase eventually.
 export const mockGroups: Group[] = [
   {
     id: 'groupA-user',
@@ -127,15 +123,21 @@ export const mockGroups: Group[] = [
 
 // This function is used by user-facing match details page. Keep it using mockMatches for now.
 export const getMatchById = (id: string): Match | undefined => {
-  const match = mockMatches.find(match => match.id === id); // User-side still uses mockMatches
+  const match = mockMatches.find(m => m.id === id); 
   if (match) {
-    return { ...match, events: match.events || [] };
+    // Ensure players are attached if not explicitly part of mock match lineups
+    const teamAWithPlayers = exampleTeamsForUserDisplay.find(t => t.id === match.teamA.id) || match.teamA;
+    const teamBWithPlayers = exampleTeamsForUserDisplay.find(t => t.id === match.teamB.id) || match.teamB;
+    
+    return { 
+        ...match, 
+        teamA: {...teamAWithPlayers, players: teamAWithPlayers.players || []},
+        teamB: {...teamBWithPlayers, players: teamBWithPlayers.players || []},
+        events: match.events || [],
+        lineupA: match.lineupA || teamAWithPlayers.players?.slice(0,11) || [], // Fallback lineup
+        lineupB: match.lineupB || teamBWithPlayers.players?.slice(0,11) || [], // Fallback lineup
+    };
   }
   return undefined;
 };
-// getTeamById is not actively used by admin pages anymore as they fetch directly.
-// It could be kept if user-side pages need it for mock data.
-// For now, I'll comment it out to avoid confusion.
-// export const getTeamById = (id: string): Team | undefined => exampleTeamsForUserDisplay.find(team => team.id === id);
-
     

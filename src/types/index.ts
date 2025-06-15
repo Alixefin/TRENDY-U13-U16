@@ -17,7 +17,7 @@ export interface Team {
 }
 
 export interface MatchEventBase {
-  id: string; // Should be unique for the event, can be client-generated for new events before saving
+  id: string; 
   time: string; 
   teamId?: string; 
   playerId?: string; 
@@ -44,32 +44,30 @@ export interface SubstitutionEvent extends MatchEventBase {
 
 export type MatchEvent = GoalEvent | CardEvent | SubstitutionEvent;
 
-// Represents a match object primarily for client-side use, with populated team objects
 export interface Match {
-  id: string; // from Supabase matches.id
+  id: string; 
   teamA: Team; 
   teamB: Team; 
-  dateTime: Date; // from Supabase matches.date_time
-  venue: string; // from Supabase matches.venue
-  status: 'scheduled' | 'live' | 'completed'; // from Supabase matches.status
-  scoreA?: number; // from Supabase matches.score_a
-  scoreB?: number; // from Supabase matches.score_b
-  events?: MatchEvent[]; // from Supabase matches.events (JSONB)
-  lineupA?: Player[]; // To be populated client-side if using matches.lineup_a_player_ids
-  lineupB?: Player[]; // To be populated client-side if using matches.lineup_b_player_ids
+  dateTime: Date; 
+  venue: string; 
+  status: 'scheduled' | 'live' | 'completed'; 
+  scoreA?: number; 
+  scoreB?: number; 
+  events?: MatchEvent[]; 
+  lineupA?: Player[]; 
+  lineupB?: Player[]; 
 }
 
-// Represents the raw match data structure from Supabase, before populating team objects
 export interface SupabaseMatch {
     id: string;
     team_a_id: string;
     team_b_id: string;
-    date_time: string; // ISO string from Supabase
+    date_time: string; 
     venue: string | null;
     status: 'scheduled' | 'live' | 'completed';
     score_a: number | null;
     score_b: number | null;
-    events: unknown | null; // JSONB comes as unknown, needs casting
+    events: unknown | null; 
     lineup_a_player_ids: string[] | null;
     lineup_b_player_ids: string[] | null;
     created_at?: string;
@@ -86,21 +84,22 @@ export interface GroupTeam {
   goalsAgainst: number;
   goalDifference: number;
   points: number;
-  isLive?: boolean; // Client-side state, not directly from DB
-  liveScore?: string; // Client-side state
+  isLive?: boolean; 
+  liveScore?: string; 
 }
 
 export interface Group {
-  id: string; // from Supabase groups.id
-  name: string; // from Supabase groups.name
-  teams: GroupTeam[]; // Populated client-side using group_teams table data
+  id: string; 
+  name: string; 
+  teams: GroupTeam[]; 
 }
 
 export interface TournamentInfo {
+  id?: number; // from Supabase, should be 1
   name: string;
-  logoUrl: string;
-  about: string;
-  knockoutImageUrl?: string;
+  about: string | null;
+  logoUrl: string | null;
+  knockoutImageUrl?: string | null;
+  updated_at?: string;
 }
-
     

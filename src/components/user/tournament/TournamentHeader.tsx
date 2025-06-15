@@ -1,8 +1,9 @@
+
 import React from 'react';
 import Image from 'next/image';
 import type { TournamentInfo } from '@/types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import TournamentLogo from '@/components/common/TournamentLogo'; // Using the refined logo component
+import TournamentLogo from '@/components/common/TournamentLogo'; 
 
 interface TournamentHeaderProps {
   info: TournamentInfo;
@@ -13,10 +14,10 @@ const TournamentHeader: React.FC<TournamentHeaderProps> = ({ info }) => {
     <Card className="mb-8 shadow-lg overflow-hidden">
       <div className="relative h-48 md:h-64 w-full">
         <Image 
-          src="https://placehold.co/1200x400/50C878/FFFFFF.png?text=Stadium+View&font=poppins" 
+          src={info.logoUrl || "https://placehold.co/1200x400/50C878/FFFFFF.png?text=Stadium+View&font=poppins"} 
           alt="Tournament banner" 
-          layout="fill" 
-          objectFit="cover"
+          fill={true}
+          style={{objectFit:"cover"}}
           data-ai-hint="stadium crowd"
         />
         <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent"></div>
@@ -29,7 +30,7 @@ const TournamentHeader: React.FC<TournamentHeaderProps> = ({ info }) => {
       <CardContent className="p-6">
         <CardTitle className="text-2xl font-headline mb-3">About the Tournament</CardTitle>
         <CardDescription className="text-base leading-relaxed text-foreground/80">
-          {info.about}
+          {info.about || "Information about this tournament will be available soon."}
         </CardDescription>
       </CardContent>
     </Card>
