@@ -7,7 +7,8 @@ DO $$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'match_status_enum') THEN
         CREATE TYPE public.match_status_enum AS ENUM ('scheduled', 'live', 'completed');
-    END IF;
+    END IF
+    ;
 END$$;
 
 -- Table: teams

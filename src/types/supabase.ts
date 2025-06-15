@@ -1,4 +1,3 @@
-
 export type Json =
   | string
   | number
@@ -7,181 +6,45 @@ export type Json =
   | { [key: string]: Json | undefined }
   | Json[]
 
-export type MatchStatusEnum = "scheduled" | "live" | "completed";
-
-export interface Database {
+export type Database = {
   public: {
     Tables: {
-      teams: {
-        Row: {
-          id: string
-          created_at: string
-          name: string
-          coach_name: string | null
-          logo_url: string | null
-        }
-        Insert: {
-          id?: string
-          created_at?: string
-          name: string
-          coach_name?: string | null
-          logo_url?: string | null
-        }
-        Update: {
-          id?: string
-          created_at?: string
-          name?: string
-          coach_name?: string | null
-          logo_url?: string | null
-        }
-        Relationships: []
-      }
-      players: {
-        Row: {
-          id: string
-          created_at: string
-          name: string
-          shirt_number: number
-          team_id: string
-        }
-        Insert: {
-          id?: string
-          created_at?: string
-          name: string
-          shirt_number: number
-          team_id: string
-        }
-        Update: {
-          id?: string
-          created_at?: string
-          name?: string
-          shirt_number?: number
-          team_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "players_team_id_fkey"
-            columns: ["team_id"]
-            isOneToOne: false
-            referencedRelation: "teams"
-            referencedColumns: ["id"]
-          }
-        ]
-      }
-      matches: {
-        Row: {
-          id: string
-          created_at: string
-          team_a_id: string
-          team_b_id: string
-          date_time: string
-          venue: string | null
-          status: MatchStatusEnum
-          score_a: number | null
-          score_b: number | null
-          events: Json | null
-          lineup_a_player_ids: string[] | null
-          lineup_b_player_ids: string[] | null
-        }
-        Insert: {
-          id?: string
-          created_at?: string
-          team_a_id: string
-          team_b_id: string
-          date_time: string
-          venue?: string | null
-          status?: MatchStatusEnum
-          score_a?: number | null
-          score_b?: number | null
-          events?: Json | null
-          lineup_a_player_ids?: string[] | null
-          lineup_b_player_ids?: string[] | null
-        }
-        Update: {
-          id?: string
-          created_at?: string
-          team_a_id?: string
-          team_b_id?: string
-          date_time?: string
-          venue?: string | null
-          status?: MatchStatusEnum
-          score_a?: number | null
-          score_b?: number | null
-          events?: Json | null
-          lineup_a_player_ids?: string[] | null
-          lineup_b_player_ids?: string[] | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "matches_team_a_id_fkey"
-            columns: ["team_a_id"]
-            isOneToOne: false
-            referencedRelation: "teams"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "matches_team_b_id_fkey"
-            columns: ["team_b_id"]
-            isOneToOne: false
-            referencedRelation: "teams"
-            referencedColumns: ["id"]
-          }
-        ]
-      }
-      groups: {
-        Row: {
-          id: string
-          created_at: string
-          name: string
-        }
-        Insert: {
-          id?: string
-          created_at?: string
-          name: string
-        }
-        Update: {
-          id?: string
-          created_at?: string
-          name?: string
-        }
-        Relationships: []
-      }
       group_teams: {
         Row: {
-          id: string
-          group_id: string
-          team_id: string
-          played: number
-          won: number
           drawn: number
-          lost: number
-          goals_for: number
           goals_against: number
+          goals_for: number
+          group_id: string
+          id: string
+          lost: number
+          played: number
           points: number
+          team_id: string
+          won: number
         }
         Insert: {
-          id?: string
-          group_id: string
-          team_id: string
-          played?: number
-          won?: number
           drawn?: number
-          lost?: number
-          goals_for?: number
           goals_against?: number
+          goals_for?: number
+          group_id: string
+          id?: string
+          lost?: number
+          played?: number
           points?: number
+          team_id: string
+          won?: number
         }
         Update: {
-          id?: string
-          group_id?: string
-          team_id?: string
-          played?: number
-          won?: number
           drawn?: number
-          lost?: number
-          goals_for?: number
           goals_against?: number
+          goals_for?: number
+          group_id?: string
+          id?: string
+          lost?: number
+          played?: number
           points?: number
+          team_id?: string
+          won?: number
         }
         Relationships: [
           {
@@ -197,32 +60,166 @@ export interface Database {
             isOneToOne: false
             referencedRelation: "teams"
             referencedColumns: ["id"]
-          }
+          },
         ]
+      }
+      groups: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+        }
+        Relationships: []
+      }
+      matches: {
+        Row: {
+          created_at: string
+          date_time: string
+          events: Json | null
+          id: string
+          lineup_a_player_ids: string[] | null
+          lineup_b_player_ids: string[] | null
+          score_a: number | null
+          score_b: number | null
+          status: Database["public"]["Enums"]["match_status_enum"]
+          team_a_id: string
+          team_b_id: string
+          venue: string | null
+        }
+        Insert: {
+          created_at?: string
+          date_time: string
+          events?: Json | null
+          id?: string
+          lineup_a_player_ids?: string[] | null
+          lineup_b_player_ids?: string[] | null
+          score_a?: number | null
+          score_b?: number | null
+          status?: Database["public"]["Enums"]["match_status_enum"]
+          team_a_id: string
+          team_b_id: string
+          venue?: string | null
+        }
+        Update: {
+          created_at?: string
+          date_time?: string
+          events?: Json | null
+          id?: string
+          lineup_a_player_ids?: string[] | null
+          lineup_b_player_ids?: string[] | null
+          score_a?: number | null
+          score_b?: number | null
+          status?: Database["public"]["Enums"]["match_status_enum"]
+          team_a_id?: string
+          team_b_id?: string
+          venue?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "matches_team_a_id_fkey"
+            columns: ["team_a_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "matches_team_b_id_fkey"
+            columns: ["team_b_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      players: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+          shirt_number: number
+          team_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+          shirt_number: number
+          team_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+          shirt_number?: number
+          team_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "players_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      teams: {
+        Row: {
+          coach_name: string | null
+          created_at: string
+          id: string
+          logo_url: string | null
+          name: string
+        }
+        Insert: {
+          coach_name?: string | null
+          created_at?: string
+          id?: string
+          logo_url?: string | null
+          name: string
+        }
+        Update: {
+          coach_name?: string | null
+          created_at?: string
+          id?: string
+          logo_url?: string | null
+          name?: string
+        }
+        Relationships: []
       }
       tournament_settings: {
         Row: {
-          id: number
-          name: string
           about: string | null
-          logo_url: string | null
+          id: number
           knockout_image_url: string | null
+          logo_url: string | null
+          name: string
           updated_at: string
         }
         Insert: {
-          id: 1
-          name?: string
           about?: string | null
-          logo_url?: string | null
+          id?: number
           knockout_image_url?: string | null
+          logo_url?: string | null
+          name?: string
           updated_at?: string
         }
         Update: {
-          id?: 1
-          name?: string
           about?: string | null
-          logo_url?: string | null
+          id?: number
           knockout_image_url?: string | null
+          logo_url?: string | null
+          name?: string
           updated_at?: string
         }
         Relationships: []
@@ -232,13 +229,10 @@ export interface Database {
       [_ in never]: never
     }
     Functions: {
-      moddatetime_on_settings_update: {
-        Args: Record<string, unknown>
-        Returns: unknown // Typically 'trigger' but simplified here
-      }
+      [_ in never]: never
     }
     Enums: {
-      match_status_enum: MatchStatusEnum
+      match_status_enum: "scheduled" | "live" | "completed"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -246,7 +240,115 @@ export interface Database {
   }
 }
 
-// Helper type for global Supabase client instance
-declare global {
-  var supabaseClientInstance: import('@supabase/supabase-js').SupabaseClient<Database>;
-}
+type DefaultSchema = Database[Extract<keyof Database, "public">]
+
+export type Tables<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
+    | { schema: keyof Database },
+  TableName extends DefaultSchemaTableNameOrOptions extends {
+    schema: keyof Database
+  }
+    ? keyof (Database[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+        Database[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
+    : never = never,
+> = DefaultSchemaTableNameOrOptions extends { schema: keyof Database }
+  ? (Database[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+      Database[DefaultSchemaTableNameOrOptions["schema"]]["Views"])[TableName] extends {
+      Row: infer R
+    }
+    ? R
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])
+    ? (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])[DefaultSchemaTableNameOrOptions] extends {
+        Row: infer R
+      }
+      ? R
+      : never
+    : never
+
+export type TablesInsert<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof DefaultSchema["Tables"]
+    | { schema: keyof Database },
+  TableName extends DefaultSchemaTableNameOrOptions extends {
+    schema: keyof Database
+  }
+    ? keyof Database[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+    : never = never,
+> = DefaultSchemaTableNameOrOptions extends { schema: keyof Database }
+  ? Database[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
+      Insert: infer I
+    }
+    ? I
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+        Insert: infer I
+      }
+      ? I
+      : never
+    : never
+
+export type TablesUpdate<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof DefaultSchema["Tables"]
+    | { schema: keyof Database },
+  TableName extends DefaultSchemaTableNameOrOptions extends {
+    schema: keyof Database
+  }
+    ? keyof Database[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+    : never = never,
+> = DefaultSchemaTableNameOrOptions extends { schema: keyof Database }
+  ? Database[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
+      Update: infer U
+    }
+    ? U
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+        Update: infer U
+      }
+      ? U
+      : never
+    : never
+
+export type Enums<
+  DefaultSchemaEnumNameOrOptions extends
+    | keyof DefaultSchema["Enums"]
+    | { schema: keyof Database },
+  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+    schema: keyof Database
+  }
+    ? keyof Database[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
+    : never = never,
+> = DefaultSchemaEnumNameOrOptions extends { schema: keyof Database }
+  ? Database[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"][EnumName]
+  : DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema["Enums"]
+    ? DefaultSchema["Enums"][DefaultSchemaEnumNameOrOptions]
+    : never
+
+export type CompositeTypes<
+  PublicCompositeTypeNameOrOptions extends
+    | keyof DefaultSchema["CompositeTypes"]
+    | { schema: keyof Database },
+  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+    schema: keyof Database
+  }
+    ? keyof Database[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
+    : never = never,
+> = PublicCompositeTypeNameOrOptions extends { schema: keyof Database }
+  ? Database[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"][CompositeTypeName]
+  : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema["CompositeTypes"]
+    ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
+    : never
+
+export const Constants = {
+  public: {
+    Enums: {
+      match_status_enum: ["scheduled", "live", "completed"],
+    },
+  },
+} as const

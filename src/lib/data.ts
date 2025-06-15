@@ -1,153 +1,141 @@
+
 import type { Team, Match, Group, TournamentInfo, Player, GoalEvent, CardEvent } from '@/types';
 
-const createPlayer = (id: string, name: string, shirtNumber: number): Player => ({ id, name, shirtNumber });
+// This file will now primarily hold mock data for USER-FACING components
+// or initial structures if needed. Admin panel will fetch from Supabase.
 
 export const placeholderTeamLogo = (name: string) => `https://placehold.co/128x128/FFFFFF/50C878.png?text=${name.substring(0,2).toUpperCase()}&font=poppins`;
 
+// Initial player creation helper - might be useful for user-side display if not fetching full details
+const createPlayer = (id: string, name: string, shirtNumber: number, team_id: string): Player => ({ id, name, shirt_number, team_id });
 
-export const mockTeams: Team[] = [
+
+// Mock teams - kept for user-side components that might need a quick example or until they are refactored
+// Admin panel should NOT use this.
+export const exampleTeamsForUserDisplay: Team[] = [
   {
-    id: 'team1',
-    name: 'Green Lions',
+    id: 'user-team1',
+    name: 'Green Lions (User)',
     logoUrl: placeholderTeamLogo('GL'),
     coachName: 'Coach Arthur',
     players: [
-      createPlayer('p1', 'Leo Green', 10),
-      createPlayer('p2', 'Sam Stripes', 7),
-      createPlayer('p3', 'Alex Field', 1),
-      createPlayer('p4', 'Max Power', 9),
-      createPlayer('p5', 'Chris Keep', 5),
+      createPlayer('user-p1', 'Leo Green', 10, 'user-team1'),
+      createPlayer('user-p2', 'Sam Stripes', 7, 'user-team1'),
     ],
   },
   {
-    id: 'team2',
-    name: 'Blue Eagles',
+    id: 'user-team2',
+    name: 'Blue Eagles (User)',
     logoUrl: placeholderTeamLogo('BE'),
     coachName: 'Coach Bella',
     players: [
-      createPlayer('p6', 'Eva Blue', 10),
-      createPlayer('p7', 'Tom Sky', 7),
-      createPlayer('p8', 'Rick Guard', 1),
-      createPlayer('p9', 'Nina Fast', 11),
-      createPlayer('p10', 'Ben Strong', 4),
+      createPlayer('user-p6', 'Eva Blue', 10, 'user-team2'),
     ],
   },
-  {
-    id: 'team3',
-    name: 'Red Dragons',
+   {
+    id: 'user-team3',
+    name: 'Red Dragons (User)',
     logoUrl: placeholderTeamLogo('RD'),
     coachName: 'Coach Drake',
-    players: [
-      createPlayer('p11', 'Ruby Fire', 9),
-      createPlayer('p12', 'Ken Flame', 8),
-      createPlayer('p13', 'Zoe Blaze', 1),
-      createPlayer('p14', 'Dan Heat', 6),
-      createPlayer('p15', 'Ivy Ash', 3),
-    ],
+    players: [createPlayer('user-p11', 'Ruby Fire', 9, 'user-team3')],
   },
   {
-    id: 'team4',
-    name: 'Yellow Hornets',
+    id: 'user-team4',
+    name: 'Yellow Hornets (User)',
     logoUrl: placeholderTeamLogo('YH'),
     coachName: 'Coach Stinger',
-    players: [
-      createPlayer('p16', 'Buzz Gold', 10),
-      createPlayer('p17', 'Honey Comb', 7),
-      createPlayer('p18', 'Wasp Net', 1),
-      createPlayer('p19', 'Pollen Swift', 9),
-      createPlayer('p20', 'Nectar Guard', 2),
-    ],
+    players: [createPlayer('user-p16', 'Buzz Gold', 10, 'user-team4')],
   },
 ];
+
 
 const now = new Date();
 
+// Mock matches - kept for user-facing components. Admin panel fetches from Supabase.
 export const mockMatches: Match[] = [
   {
-    id: 'match1',
-    teamA: mockTeams[0],
-    teamB: mockTeams[1],
-    dateTime: new Date(now.getTime() + 2 * 60 * 60 * 1000), // 2 hours from now
-    venue: 'Stadium Alpha',
+    id: 'match1-user',
+    teamA: exampleTeamsForUserDisplay[0],
+    teamB: exampleTeamsForUserDisplay[1],
+    dateTime: new Date(now.getTime() + 2 * 60 * 60 * 1000), 
+    venue: 'Stadium Alpha (User)',
     status: 'scheduled',
     events: [],
   },
   {
-    id: 'match2',
-    teamA: mockTeams[2],
-    teamB: mockTeams[3],
-    dateTime: new Date(now.getTime() - 15 * 60 * 1000), // Started 15 mins ago
-    venue: 'Stadium Beta',
+    id: 'match2-user',
+    teamA: exampleTeamsForUserDisplay[2],
+    teamB: exampleTeamsForUserDisplay[3],
+    dateTime: new Date(now.getTime() - 15 * 60 * 1000), 
+    venue: 'Stadium Beta (User)',
     status: 'live',
     scoreA: 1,
     scoreB: 0,
-    lineupA: mockTeams[2].players.slice(0, 5),
-    lineupB: mockTeams[3].players.slice(0, 5),
+    lineupA: exampleTeamsForUserDisplay[2].players.slice(0, 5),
+    lineupB: exampleTeamsForUserDisplay[3].players.slice(0, 5),
     events: [
-      { id: 'e1', type: 'goal', time: "10'", playerName: 'Ruby Fire', playerId: 'p11', teamId: 'team3' } as GoalEvent,
+      { id: 'e1-user', type: 'goal', time: "10'", playerName: 'Ruby Fire', playerId: 'user-p11', teamId: 'user-team3' } as GoalEvent,
     ],
   },
   {
-    id: 'match3',
-    teamA: mockTeams[0],
-    teamB: mockTeams[2],
-    dateTime: new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000), // 2 days ago
-    venue: 'Stadium Gamma',
+    id: 'match3-user',
+    teamA: exampleTeamsForUserDisplay[0],
+    teamB: exampleTeamsForUserDisplay[2],
+    dateTime: new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000), 
+    venue: 'Stadium Gamma (User)',
     status: 'completed',
     scoreA: 2,
     scoreB: 1,
-    lineupA: mockTeams[0].players.slice(0, 5),
-    lineupB: mockTeams[2].players.slice(0, 5),
+    lineupA: exampleTeamsForUserDisplay[0].players.slice(0, 5),
+    lineupB: exampleTeamsForUserDisplay[2].players.slice(0, 5),
     events: [
-      { id: 'e2', type: 'goal', time: "25'", playerName: 'Leo Green', playerId: 'p1', teamId: 'team1' } as GoalEvent,
-      { id: 'e3', type: 'goal', time: "55'", playerName: 'Ruby Fire', playerId: 'p11', teamId: 'team3' } as GoalEvent,
-      { id: 'e4', type: 'goal', time: "80'", playerName: 'Sam Stripes', playerId: 'p2', teamId: 'team1' } as GoalEvent,
-      { id: 'e5', type: 'card', time: "60'", playerName: 'Ken Flame', playerId: 'p12', teamId: 'team3', cardType: 'yellow', details: 'Foul tackle' } as CardEvent,
+      { id: 'e2-user', type: 'goal', time: "25'", playerName: 'Leo Green', playerId: 'user-p1', teamId: 'user-team1' } as GoalEvent,
+      { id: 'e3-user', type: 'goal', time: "55'", playerName: 'Ruby Fire', playerId: 'user-p11', teamId: 'user-team3' } as GoalEvent,
+      { id: 'e4-user', type: 'goal', time: "80'", playerName: 'Sam Stripes', playerId: 'user-p2', teamId: 'user-team1' } as GoalEvent,
+      { id: 'e5-user', type: 'card', time: "60'", playerName: 'Ken Flame (User)', playerId: 'user-p12placeholder', teamId: 'user-team3', cardType: 'yellow', details: 'Foul tackle' } as CardEvent,
     ],
-  },
-  {
-    id: 'match4',
-    teamA: mockTeams[1],
-    teamB: mockTeams[3],
-    dateTime: new Date(now.getTime() + 5 * 60 * 1000), // 5 minutes from now
-    venue: 'Stadium Delta',
-    status: 'scheduled',
-    events: [],
   },
 ];
 
+// Tournament Info - can remain mock for now, or be fetched from Supabase settings table
 export const mockTournamentInfo: TournamentInfo = {
   name: "Trendy's U13/U16 Championship Tournament",
-  logoUrl: placeholderTeamLogo('TT'), // Placeholder for Trendy's Tournament
+  logoUrl: placeholderTeamLogo('TT'), 
   about: "Welcome to the most exciting youth championship! Trendy's U13/U16 tournament brings together the best young talents to compete for glory. Witness skill, passion, and the future stars of tomorrow. This tournament emphasizes fair play, sportsmanship, and community engagement. Join us for a festival of football!",
-  knockoutImageUrl: `https://placehold.co/800x500/F0FAF4/50C878.png?text=Knockout+Diagram&font=poppins`, // Placeholder for knockout diagram
+  knockoutImageUrl: `https://placehold.co/800x500/F0FAF4/50C878.png?text=Knockout+Diagram&font=poppins`, 
 };
 
+// Mock Groups - kept for user-facing components. Admin panel will manage via Supabase eventually.
 export const mockGroups: Group[] = [
   {
-    id: 'groupA',
-    name: 'Group A',
+    id: 'groupA-user',
+    name: 'Group A (User)',
     teams: [
-      { team: mockTeams[0], played: 1, won: 1, drawn: 0, lost: 0, goalsFor: 2, goalsAgainst: 1, goalDifference: 1, points: 3 },
-      { team: mockTeams[1], played: 0, won: 0, drawn: 0, lost: 0, goalsFor: 0, goalsAgainst: 0, goalDifference: 0, points: 0 },
+      { team: exampleTeamsForUserDisplay[0], played: 1, won: 1, drawn: 0, lost: 0, goalsFor: 2, goalsAgainst: 1, goalDifference: 1, points: 3 },
+      { team: exampleTeamsForUserDisplay[1], played: 0, won: 0, drawn: 0, lost: 0, goalsFor: 0, goalsAgainst: 0, goalDifference: 0, points: 0 },
     ],
   },
   {
-    id: 'groupB',
-    name: 'Group B',
+    id: 'groupB-user',
+    name: 'Group B (User)',
     teams: [
-      { team: mockTeams[2], played: 1, won: 0, drawn: 0, lost: 1, goalsFor: 1, goalsAgainst: 2, goalDifference: -1, points: 0, isLive: true, liveScore: '1-0 vs YH' },
-      { team: mockTeams[3], played: 0, won: 0, drawn: 0, lost: 0, goalsFor: 0, goalsAgainst: 0, goalDifference: 0, points: 0, isLive: true, liveScore: '0-1 vs RD' },
+      { team: exampleTeamsForUserDisplay[2], played: 1, won: 0, drawn: 0, lost: 1, goalsFor: 1, goalsAgainst: 2, goalDifference: -1, points: 0, isLive: true, liveScore: '1-0 vs YH' },
+      { team: exampleTeamsForUserDisplay[3], played: 0, won: 0, drawn: 0, lost: 0, goalsFor: 0, goalsAgainst: 0, goalDifference: 0, points: 0, isLive: true, liveScore: '0-1 vs RD' },
     ],
   },
 ];
 
+// This function is used by user-facing match details page. Keep it using mockMatches for now.
 export const getMatchById = (id: string): Match | undefined => {
-  const match = mockMatches.find(match => match.id === id);
+  const match = mockMatches.find(match => match.id === id); // User-side still uses mockMatches
   if (match) {
-    // Ensure events array exists
     return { ...match, events: match.events || [] };
   }
   return undefined;
 };
-export const getTeamById = (id: string): Team | undefined => mockTeams.find(team => team.id === id);
+// getTeamById is not actively used by admin pages anymore as they fetch directly.
+// It could be kept if user-side pages need it for mock data.
+// For now, I'll comment it out to avoid confusion.
+// export const getTeamById = (id: string): Team | undefined => exampleTeamsForUserDisplay.find(team => team.id === id);
+
+    

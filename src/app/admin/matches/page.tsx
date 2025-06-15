@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useForm, type SubmitHandler } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -12,10 +12,11 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
-import { CalendarClock, PlusCircle, Edit, Trash2, Goal, CreditCardIcon } from 'lucide-react';
-import { mockMatches as initialMatches, mockTeams } from '@/lib/data';
-import type { Match, Team, Player, MatchEvent, GoalEvent, CardEvent } from '@/types';
+import { CalendarClock, PlusCircle, Edit, Trash2, Goal, CreditCardIcon, Loader2 } from 'lucide-react';
+import type { Match, Team, Player, MatchEvent, GoalEvent, CardEvent, SupabaseMatch } from '@/types';
 import { useToast } from "@/hooks/use-toast";
+import { supabase } from '@/lib/supabaseClient';
+import { placeholderTeamLogo } from '@/lib/data'; // Keep for default logo generation if needed
 
 const matchSchema = z.object({
   teamAId: z.string().min(1, "Please select Team A."),
@@ -37,12 +38,10 @@ const updateMatchSchema = z.object({
 });
 type UpdateMatchFormValues = z.infer<typeof updateMatchSchema>;
 
-// Schemas for adding events (not part of the main RHF form for the dialog)
 const goalEventSchema = z.object({
   playerId: z.string().min(1, "Select player"),
   time: z.string().min(1, "Enter time (e.g., 45+2')"),
 });
-type GoalEventFormValues = z.infer<typeof goalEventSchema>;
 
 const cardEventSchema = z.object({
   playerId: z.string().min(1, "Select player"),
@@ -50,26 +49,42 @@ const cardEventSchema = z.object({
   time: z.string().min(1, "Enter time"),
   details: z.string().optional(),
 });
-type CardEventFormValues = z.infer<typeof cardEventSchema>;
 
+
+const mapSupabaseMatchToLocal = (sm: SupabaseMatch, teamsList: Team[]): Match => {
+  const teamA = teamsList.find(t => t.id === sm.team_a_id);
+  const teamB = teamsList.find(t => t.id === sm.team_b_id);
+  return {
+    id: sm.id,
+    teamA: teamA || { id: sm.team_a_id, name: 'Unknown Team A', logoUrl: placeholderTeamLogo('?'), coachName: '', players: [] },
+    teamB: teamB || { id: sm.team_b_id, name: 'Unknown Team B', logoUrl: placeholderTeamLogo('?'), coachName: '', players: [] },
+    dateTime: new Date(sm.date_time),
+    venue: sm.venue || 'N/A',
+    status: sm.status,
+    scoreA: sm.score_a ?? undefined,
+    scoreB: sm.score_b ?? undefined,
+    events: (sm.events as MatchEvent[] | null) || [], // Cast events from JSONB
+    lineupA: [], // TODO: Populate from sm.lineup_a_player_ids if needed
+    lineupB: [], // TODO: Populate from sm.lineup_b_player_ids if needed
+  };
+};
 
 export default function AdminMatchesPage() {
-  const [matches, setMatches] = useState<Match[]>(initialMatches);
-  const [teams] = useState<Team[]>(mockTeams);
+  const [matches, setMatches] = useState<Match[]>([]);
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [isSubmittingMatch, setIsSubmittingMatch] = useState(false);
   const [isUpdatingMatch, setIsUpdatingMatch] = useState(false);
   const [selectedMatch, setSelectedMatch] = useState<Match | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const { toast } = useToast();
 
-  // Local state for adding events inside the dialog
   const [goalPlayerId, setGoalPlayerId] = useState('');
   const [goalTime, setGoalTime] = useState('');
   const [cardPlayerId, setCardPlayerId] = useState('');
   const [cardType, setCardType] = useState<'yellow' | 'red'>('yellow');
   const [cardTime, setCardTime] = useState('');
   const [cardDetails, setCardDetails] = useState('');
-
 
   const scheduleForm = useForm<MatchFormValues>({
     resolver: zodResolver(matchSchema),
@@ -80,7 +95,51 @@ export default function AdminMatchesPage() {
     resolver: zodResolver(updateMatchSchema),
   });
 
-  const onScheduleSubmit: SubmitHandler<MatchFormValues> = (data) => {
+  const fetchTeamsAndMatches = useCallback(async () => {
+    setIsLoading(true);
+    const { data: teamsData, error: teamsError } = await supabase
+      .from('teams')
+      .select(`
+        id,
+        name,
+        logo_url,
+        coach_name,
+        players (id, name, shirt_number, team_id)
+      `);
+
+    if (teamsError) {
+      toast({ variant: "destructive", title: "Error fetching teams", description: teamsError.message });
+      setTeams([]);
+    } else {
+      const fetchedTeams = teamsData?.map(t => ({
+        id: t.id,
+        name: t.name,
+        logoUrl: t.logo_url || placeholderTeamLogo(t.name),
+        coachName: t.coach_name || 'N/A',
+        players: t.players as Player[] || [],
+      })) || [];
+      setTeams(fetchedTeams);
+
+      const { data: matchesData, error: matchesError } = await supabase
+        .from('matches')
+        .select('*')
+        .order('date_time', { ascending: false });
+
+      if (matchesError) {
+        toast({ variant: "destructive", title: "Error fetching matches", description: matchesError.message });
+        setMatches([]);
+      } else {
+        setMatches(matchesData?.map(m => mapSupabaseMatchToLocal(m as SupabaseMatch, fetchedTeams)) || []);
+      }
+    }
+    setIsLoading(false);
+  }, [toast]);
+
+  useEffect(() => {
+    fetchTeamsAndMatches();
+  }, [fetchTeamsAndMatches]);
+
+  const onScheduleSubmit: SubmitHandler<MatchFormValues> = async (data) => {
     setIsSubmittingMatch(true);
     const teamA = teams.find(t => t.id === data.teamAId);
     const teamB = teams.find(t => t.id === data.teamBId);
@@ -90,58 +149,75 @@ export default function AdminMatchesPage() {
       setIsSubmittingMatch(false);
       return;
     }
+    
+    const { data: newMatchData, error } = await supabase
+      .from('matches')
+      .insert([{
+        team_a_id: data.teamAId,
+        team_b_id: data.teamBId,
+        date_time: new Date(data.dateTime).toISOString(),
+        venue: data.venue,
+        status: 'scheduled',
+        events: [],
+      }])
+      .select()
+      .single();
 
-    const newMatch: Match = {
-      id: `match-${Date.now()}`,
-      teamA: teamA,
-      teamB: teamB,
-      dateTime: new Date(data.dateTime),
-      venue: data.venue,
-      status: 'scheduled',
-      scoreA: undefined,
-      scoreB: undefined,
-      events: [],
-      lineupA: [], // Initially empty, admin can add later if needed or default to team players
-      lineupB: [],
-    };
-    setMatches(prevMatches => [...prevMatches, newMatch].sort((a, b) => new Date(a.dateTime).getTime() - new Date(b.dateTime).getTime()));
-    toast({ title: "Match Scheduled", description: `Match between ${teamA.name} and ${teamB.name} has been scheduled.` });
-    scheduleForm.reset();
+    if (error) {
+      toast({ variant: "destructive", title: "Failed to Schedule Match", description: error.message });
+    } else if (newMatchData) {
+      setMatches(prevMatches => [mapSupabaseMatchToLocal(newMatchData as SupabaseMatch, teams), ...prevMatches].sort((a,b) => new Date(b.dateTime).getTime() - new Date(a.dateTime).getTime()));
+      toast({ title: "Match Scheduled", description: `Match between ${teamA.name} and ${teamB.name} has been scheduled.` });
+      scheduleForm.reset();
+    }
     setIsSubmittingMatch(false);
   };
 
   const openEditModal = (match: Match) => {
-    setSelectedMatch({ ...match, events: match.events ? [...match.events] : [] }); // Clone to allow local modifications
+    setSelectedMatch({ ...match, events: match.events ? [...match.events] : [] });
     updateForm.reset({
       scoreA: match.scoreA ?? undefined,
       scoreB: match.scoreB ?? undefined,
       status: match.status,
     });
-    // Reset event form fields
     setGoalPlayerId(''); setGoalTime('');
     setCardPlayerId(''); setCardType('yellow'); setCardTime(''); setCardDetails('');
     setIsEditModalOpen(true);
   };
+  
+  const getTeamForPlayer = (playerId: string, match: Match): Team | undefined => {
+    if (match.teamA.players.some(p => p.id === playerId)) return match.teamA;
+    if (match.teamB.players.some(p => p.id === playerId)) return match.teamB;
+    // Fallback if players are not fully populated on match object yet (e.g. for new matches)
+    const teamA = teams.find(t => t.id === match.teamA.id);
+    if (teamA?.players.some(p => p.id === playerId)) return teamA;
+    const teamB = teams.find(t => t.id === match.teamB.id);
+    if (teamB?.players.some(p => p.id === playerId)) return teamB;
+    return undefined;
+  };
+
 
   const handleAddGoal = () => {
     if (!selectedMatch || !goalPlayerId || !goalTime) {
       toast({ variant: "destructive", title: "Error", description: "Player and time are required for a goal." });
       return;
     }
-    const allPlayers = [...(selectedMatch.lineupA || selectedMatch.teamA.players), ...(selectedMatch.lineupB || selectedMatch.teamB.players)];
-    const player = allPlayers.find(p => p.id === goalPlayerId);
+    
+    const playerTeam = getTeamForPlayer(goalPlayerId, selectedMatch);
+    if (!playerTeam) {
+         toast({ variant: "destructive", title: "Error", description: "Could not determine player's team." });
+         return;
+    }
+    const player = playerTeam.players.find(p => p.id === goalPlayerId);
     if (!player) return;
 
-    const teamIdForGoal = selectedMatch.teamA.players.some(p => p.id === playerId) ? selectedMatch.teamA.id : selectedMatch.teamB.id;
-
-
     const newGoalEvent: GoalEvent = {
-      id: `event-${Date.now()}`,
+      id: `event-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
       type: 'goal',
       time: goalTime,
       playerId: player.id,
       playerName: player.name,
-      teamId: selectedMatch.teamA.players.find(p => p.id === player.id) ? selectedMatch.teamA.id : selectedMatch.teamB.id,
+      teamId: playerTeam.id,
     };
     setSelectedMatch(prev => prev ? ({ ...prev, events: [...(prev.events || []), newGoalEvent] }) : null);
     setGoalPlayerId(''); setGoalTime('');
@@ -153,21 +229,24 @@ export default function AdminMatchesPage() {
       toast({ variant: "destructive", title: "Error", description: "Player, card type, and time are required." });
       return;
     }
-    const allPlayers = [...(selectedMatch.lineupA || selectedMatch.teamA.players), ...(selectedMatch.lineupB || selectedMatch.teamB.players)];
-    const player = allPlayers.find(p => p.id === cardPlayerId);
+    
+    const playerTeam = getTeamForPlayer(cardPlayerId, selectedMatch);
+     if (!playerTeam) {
+         toast({ variant: "destructive", title: "Error", description: "Could not determine player's team." });
+         return;
+    }
+    const player = playerTeam.players.find(p => p.id === cardPlayerId);
     if (!player) return;
     
-    const teamIdForCard = selectedMatch.teamA.players.some(p => p.id === playerId) ? selectedMatch.teamA.id : selectedMatch.teamB.id;
-
     const newCardEvent: CardEvent = {
-      id: `event-${Date.now()}`,
+      id: `event-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
       type: 'card',
       cardType: cardType,
       time: cardTime,
       playerId: player.id,
       playerName: player.name,
       details: cardDetails,
-      teamId: selectedMatch.teamA.players.find(p => p.id === player.id) ? selectedMatch.teamA.id : selectedMatch.teamB.id,
+      teamId: playerTeam.id,
     };
     setSelectedMatch(prev => prev ? ({ ...prev, events: [...(prev.events || []), newCardEvent] }) : null);
     setCardPlayerId(''); setCardTime(''); setCardType('yellow'); setCardDetails('');
@@ -179,42 +258,47 @@ export default function AdminMatchesPage() {
     toast({ title: "Event Removed (Locally)", description: "Save changes to persist."});
   };
 
-
-  const onUpdateMatchSubmit: SubmitHandler<UpdateMatchFormValues> = (data) => {
+  const onUpdateMatchSubmit: SubmitHandler<UpdateMatchFormValues> = async (data) => {
     if (!selectedMatch) return;
     setIsUpdatingMatch(true);
     
-    setMatches(prevMatches =>
-      prevMatches.map(m =>
-        m.id === selectedMatch.id
-          ? { 
-              ...m, 
-              scoreA: data.status !== 'scheduled' ? (data.scoreA ?? m.scoreA ?? 0) : undefined,
-              scoreB: data.status !== 'scheduled' ? (data.scoreB ?? m.scoreB ?? 0) : undefined,
-              status: data.status,
-              events: selectedMatch.events || [], // Persist locally modified events
-            }
-          : m
-      )
-    );
-    toast({ title: "Match Updated", description: `Match details for ${selectedMatch.teamA.name} vs ${selectedMatch.teamB.name} updated.` });
-    setIsUpdatingMatch(false);
-    setIsEditModalOpen(false);
-    setSelectedMatch(null);
-  };
+    const updatedMatchData = {
+      score_a: data.status !== 'scheduled' ? (data.scoreA ?? selectedMatch.scoreA ?? 0) : null,
+      score_b: data.status !== 'scheduled' ? (data.scoreB ?? selectedMatch.scoreB ?? 0) : null,
+      status: data.status,
+      events: selectedMatch.events || [],
+    };
 
-  const getPlayerTeam = (playerId: string): Team | undefined => {
-    if (!selectedMatch) return undefined;
-    if (selectedMatch.teamA.players.find(p => p.id === playerId)) return selectedMatch.teamA;
-    if (selectedMatch.teamB.players.find(p => p.id === playerId)) return selectedMatch.teamB;
-    return undefined;
+    const { data: dbData, error } = await supabase
+      .from('matches')
+      .update(updatedMatchData)
+      .eq('id', selectedMatch.id)
+      .select()
+      .single();
+
+    if (error) {
+      toast({ variant: "destructive", title: "Failed to Update Match", description: error.message });
+    } else if (dbData) {
+      setMatches(prevMatches =>
+        prevMatches.map(m =>
+          m.id === selectedMatch.id
+            ? mapSupabaseMatchToLocal(dbData as SupabaseMatch, teams)
+            : m
+        ).sort((a,b) => new Date(b.dateTime).getTime() - new Date(a.dateTime).getTime())
+      );
+      toast({ title: "Match Updated", description: `Match details for ${selectedMatch.teamA.name} vs ${selectedMatch.teamB.name} updated.` });
+      setIsEditModalOpen(false);
+      setSelectedMatch(null);
+    }
+    setIsUpdatingMatch(false);
   };
   
   const availablePlayersForEvents = selectedMatch ? 
     [
-      ...(selectedMatch.lineupA && selectedMatch.lineupA.length > 0 ? selectedMatch.lineupA : selectedMatch.teamA.players).map(p => ({...p, teamName: selectedMatch.teamA.name})),
-      ...(selectedMatch.lineupB && selectedMatch.lineupB.length > 0 ? selectedMatch.lineupB : selectedMatch.teamB.players).map(p => ({...p, teamName: selectedMatch.teamB.name}))
-    ] : [];
+      ...(selectedMatch.teamA.players || []).map(p => ({...p, teamName: selectedMatch.teamA.name, teamId: selectedMatch.teamA.id})),
+      ...(selectedMatch.teamB.players || []).map(p => ({...p, teamName: selectedMatch.teamB.name, teamId: selectedMatch.teamB.id}))
+    ].sort((a,b) => a.name.localeCompare(b.name))
+    : [];
   
   return (
     <div className="space-y-8">
@@ -223,7 +307,7 @@ export default function AdminMatchesPage() {
           <CalendarClock className="mr-3 h-8 w-8" /> Manage Matches
         </h1>
         <p className="text-muted-foreground">
-          Set up match schedules, input live scores, lineups, and log important events.
+          Set up match schedules, input live scores, lineups, and log important events. Data is stored in Supabase.
         </p>
       </div>
 
@@ -242,9 +326,9 @@ export default function AdminMatchesPage() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Team A</FormLabel>
-                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                      <Select onValueChange={field.onChange} defaultValue={field.value} disabled={isLoading || teams.length === 0}>
                         <FormControl>
-                          <SelectTrigger><SelectValue placeholder="Select Team A" /></SelectTrigger>
+                          <SelectTrigger><SelectValue placeholder={isLoading? "Loading teams..." : "Select Team A"} /></SelectTrigger>
                         </FormControl>
                         <SelectContent>
                           {teams.map(team => (
@@ -262,9 +346,9 @@ export default function AdminMatchesPage() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Team B</FormLabel>
-                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                      <Select onValueChange={field.onChange} defaultValue={field.value} disabled={isLoading || teams.length === 0}>
                         <FormControl>
-                          <SelectTrigger><SelectValue placeholder="Select Team B" /></SelectTrigger>
+                          <SelectTrigger><SelectValue placeholder={isLoading? "Loading teams..." : "Select Team B"} /></SelectTrigger>
                         </FormControl>
                         <SelectContent>
                           {teams.map(team => (
@@ -305,8 +389,8 @@ export default function AdminMatchesPage() {
               />
             </CardContent>
             <CardFooter>
-              <Button type="submit" disabled={isSubmittingMatch}>
-                {isSubmittingMatch ? "Scheduling..." : "Schedule Match"}
+              <Button type="submit" disabled={isSubmittingMatch || isLoading}>
+                {isSubmittingMatch ? <><Loader2 className="mr-2 h-4 w-4 animate-spin"/> Scheduling...</> : "Schedule Match"}
               </Button>
             </CardFooter>
           </form>
@@ -316,58 +400,64 @@ export default function AdminMatchesPage() {
       <Card>
         <CardHeader>
           <CardTitle>Current Matches ({matches.length})</CardTitle>
-          <CardDescription>Overview of all scheduled, live, and completed matches.</CardDescription>
+          <CardDescription>Overview of all scheduled, live, and completed matches from Supabase.</CardDescription>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Team A</TableHead>
-                <TableHead>Team B</TableHead>
-                <TableHead>Date & Time</TableHead>
-                <TableHead>Venue</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Score</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {matches.length === 0 ? (
-                 <TableRow>
-                  <TableCell colSpan={7} className="text-center h-24">
-                    No matches scheduled yet.
-                  </TableCell>
+          {isLoading ? (
+             <div className="flex justify-center items-center h-24">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                <p className="ml-2">Loading matches...</p>
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Team A</TableHead>
+                  <TableHead>Team B</TableHead>
+                  <TableHead>Date & Time</TableHead>
+                  <TableHead>Venue</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Score</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
-              ) : (
-                matches.map((match) => (
-                  <TableRow key={match.id}>
-                    <TableCell>{match.teamA.name}</TableCell>
-                    <TableCell>{match.teamB.name}</TableCell>
-                    <TableCell>{new Date(match.dateTime).toLocaleString()}</TableCell>
-                    <TableCell>{match.venue}</TableCell>
-                    <TableCell className="capitalize">{match.status}</TableCell>
-                    <TableCell>
-                      {match.status !== 'scheduled' ? `${match.scoreA ?? '-'} : ${match.scoreB ?? '-'}` : 'N/A'}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Button variant="outline" size="sm" onClick={() => openEditModal(match)}>
-                        <Edit className="h-4 w-4 mr-1" /> Edit
-                      </Button>
+              </TableHeader>
+              <TableBody>
+                {matches.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={7} className="text-center h-24">
+                      No matches found in the database.
                     </TableCell>
                   </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
+                ) : (
+                  matches.map((match) => (
+                    <TableRow key={match.id}>
+                      <TableCell>{match.teamA.name}</TableCell>
+                      <TableCell>{match.teamB.name}</TableCell>
+                      <TableCell>{new Date(match.dateTime).toLocaleString()}</TableCell>
+                      <TableCell>{match.venue}</TableCell>
+                      <TableCell className="capitalize">{match.status}</TableCell>
+                      <TableCell>
+                        {match.status !== 'scheduled' ? `${match.scoreA ?? '-'} : ${match.scoreB ?? '-'}` : 'N/A'}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button variant="outline" size="sm" onClick={() => openEditModal(match)}>
+                          <Edit className="h-4 w-4 mr-1" /> Edit
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          )}
         </CardContent>
       </Card>
 
-      {/* Edit Match Modal */}
       <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
         <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Edit Match: {selectedMatch?.teamA.name} vs {selectedMatch?.teamB.name}</DialogTitle>
-            <CardDescription>Update scores, status, and log match events.</CardDescription>
+            <CardDescription>Update scores, status, and log match events. Changes will be saved to Supabase.</CardDescription>
           </DialogHeader>
           {selectedMatch && (
             <>
@@ -425,21 +515,15 @@ export default function AdminMatchesPage() {
                     />
                   </div>
                 )}
-                <DialogFooter className="mt-4">
-                  <Button type="submit" disabled={isUpdatingMatch}>
-                    {isUpdatingMatch ? "Updating Scores/Status..." : "Update Scores/Status"}
-                  </Button>
-                </DialogFooter>
+                {/* Submit for scores/status is handled by the main save button at the bottom now */}
               </form>
             </Form>
             
-            {/* Events Management */}
             <div className="mt-6 space-y-6">
               <h3 className="text-lg font-medium border-t pt-4">Manage Match Events</h3>
               
-              {/* Display Existing Events */}
               <div className="space-y-2">
-                <h4 className="text-sm font-medium text-muted-foreground">Recorded Events:</h4>
+                <h4 className="text-sm font-medium text-muted-foreground">Recorded Events ({selectedMatch.events?.length || 0}):</h4>
                 {selectedMatch.events && selectedMatch.events.length > 0 ? (
                   <ul className="max-h-40 overflow-y-auto border rounded-md p-2 space-y-1">
                     {selectedMatch.events.map(event => (
@@ -458,7 +542,6 @@ export default function AdminMatchesPage() {
                 ) : <p className="text-xs text-muted-foreground">No events recorded yet.</p>}
               </div>
 
-              {/* Add Goal Form */}
               <div className="space-y-2 border p-3 rounded-md">
                  <h4 className="text-sm font-semibold flex items-center"><Goal className="h-4 w-4 mr-1 text-green-500"/>Add Goal Event</h4>
                  <Select onValueChange={setGoalPlayerId} value={goalPlayerId}>
@@ -470,10 +553,9 @@ export default function AdminMatchesPage() {
                     </SelectContent>
                  </Select>
                  <Input type="text" placeholder="Time (e.g., 45+2')" value={goalTime} onChange={e => setGoalTime(e.target.value)} />
-                 <Button type="button" size="sm" onClick={handleAddGoal} disabled={!goalPlayerId || !goalTime}>Add Goal</Button>
+                 <Button type="button" size="sm" onClick={handleAddGoal} disabled={!goalPlayerId || !goalTime}>Add Goal to List</Button>
               </div>
 
-              {/* Add Card Form */}
               <div className="space-y-2 border p-3 rounded-md">
                  <h4 className="text-sm font-semibold flex items-center"><CreditCardIcon className="h-4 w-4 mr-1 text-yellow-500"/>Add Card Event</h4>
                  <Select onValueChange={setCardPlayerId} value={cardPlayerId}>
@@ -493,7 +575,7 @@ export default function AdminMatchesPage() {
                  </Select>
                  <Input type="text" placeholder="Time (e.g., 60')" value={cardTime} onChange={e => setCardTime(e.target.value)} />
                  <Input type="text" placeholder="Details (optional)" value={cardDetails} onChange={e => setCardDetails(e.target.value)} />
-                 <Button type="button" size="sm" onClick={handleAddCard} disabled={!cardPlayerId || !cardTime}>Add Card</Button>
+                 <Button type="button" size="sm" onClick={handleAddCard} disabled={!cardPlayerId || !cardTime}>Add Card to List</Button>
               </div>
             </div>
             <DialogFooter className="mt-6 border-t pt-4">
@@ -502,10 +584,10 @@ export default function AdminMatchesPage() {
                 </DialogClose>
                 <Button 
                     type="button" 
-                    onClick={() => updateForm.handleSubmit(onUpdateMatchSubmit)()}
+                    onClick={() => updateForm.handleSubmit(onUpdateMatchSubmit)()} // Trigger RHF submit
                     disabled={isUpdatingMatch}
                 >
-                    {isUpdatingMatch ? "Saving All Changes..." : "Save All Changes"}
+                    {isUpdatingMatch ? <><Loader2 className="mr-2 h-4 w-4 animate-spin"/> Saving All Changes...</> : "Save All Changes"}
                 </Button>
             </DialogFooter>
             </>
@@ -515,3 +597,5 @@ export default function AdminMatchesPage() {
     </div>
   );
 }
+
+    
