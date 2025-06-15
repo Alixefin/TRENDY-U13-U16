@@ -205,7 +205,7 @@ export default function AdminMatchesPage() {
   const getTeamForPlayer = (playerId: string, match: Match): Team | undefined => {
     if (match.teamA?.players?.some(p => p.id === playerId)) return match.teamA;
     if (match.teamB?.players?.some(p => p.id === playerId)) return match.teamB;
-    // Fallback to checking full teams list if player might not be in match.lineupX (e.g. sub)
+    
     const teamAFromList = teams.find(t => t.id === match.teamA.id);
     if (teamAFromList?.players.some(p => p.id === playerId)) return teamAFromList;
     const teamBFromList = teams.find(t => t.id === match.teamB.id);
@@ -273,13 +273,13 @@ export default function AdminMatchesPage() {
     }
     const teamPlayerOut = getTeamForPlayer(subPlayerOutId, selectedMatch);
     const playerOut = teamPlayerOut?.players.find(p => p.id === subPlayerOutId);
-    const teamPlayerIn = getTeamForPlayer(subPlayerInId, selectedMatch); // Player In could be from either team's full roster
-    const playerIn = teamPlayerIn?.players.find(p => p.id === subPlayerInId);
+    const teamPlayerInTeam = getTeamForPlayer(subPlayerInId, selectedMatch); 
+    const playerIn = teamPlayerInTeam?.players.find(p => p.id === subPlayerInId);
 
     if (!playerOut || !playerIn ) {
       toast({ variant: "destructive", title: "Error", description: "Could not find player(s) for substitution." }); return;
     }
-    if (!teamPlayerOut) { // Player out must belong to a team on the field
+    if (!teamPlayerOut) { 
         toast({variant: "destructive", title: "Error", description: `Could not determine team for Player Out: ${playerOut.name}`}); return;
     }
     const newSubEvent: SubstitutionEvent = {
@@ -314,16 +314,16 @@ export default function AdminMatchesPage() {
   const syncGroupStandingsForMatch = useCallback(async (
     teamAId: string,
     teamBId: string,
-    newScoreA: number,
-    newScoreB: number,
+    newScoreForTeamA: number, // Score of teamA in the match
+    newScoreForTeamB: number, // Score of teamB in the match
     newStatus: Match['status'],
-    oldMatchDetails: { scoreA?: number, scoreB?: number, status: Match['status'] }
+    oldMatchDetails: { scoreA?: number, scoreB?: number, status: Match['status'] } // scoreA/B from Team A's perspective
   ) => {
     try {
       let standingsActuallyUpdated = false;
       const teamsToProcess = [
-        { teamId: teamAId, currentScore: newScoreA, opponentScore: newScoreB, oldScore: oldMatchDetails.scoreA, oldOpponentScore: oldMatchDetails.scoreB },
-        { teamId: teamBId, currentScore: newScoreB, opponentScore: newScoreA, oldScore: oldMatchDetails.scoreB, oldOpponentScore: oldMatchDetails.scoreA },
+        { teamId: teamAId, currentScore: newScoreForTeamA, opponentScore: newScoreForTeamB, oldScore: oldMatchDetails.scoreA, oldOpponentScore: oldMatchDetails.scoreB },
+        { teamId: teamBId, currentScore: newScoreForTeamB, opponentScore: newScoreForTeamA, oldScore: oldMatchDetails.scoreB, oldOpponentScore: oldMatchDetails.scoreA },
       ];
 
       for (const { teamId, currentScore, opponentScore, oldScore, oldOpponentScore } of teamsToProcess) {
@@ -339,7 +339,6 @@ export default function AdminMatchesPage() {
         
         if (groupTeamEntries && groupTeamEntries.length > 0) {
           for (const groupTeamEntry of groupTeamEntries) {
-            // Initialize updates with current DB values
             const updates: { 
                 played: number; goals_for: number; goals_against: number; 
                 won: number; drawn: number; lost: number; points: number 
@@ -354,36 +353,27 @@ export default function AdminMatchesPage() {
             };
             let needsDbUpdate = false;
 
-            // If the match was previously completed, reverse its impact
+            // Step 1: If the match was previously 'completed', undo its contribution to stats.
             if (oldMatchDetails.status === 'completed') {
               needsDbUpdate = true;
               updates.played -= 1;
               updates.goals_for -= (oldScore ?? 0);
               updates.goals_against -= (oldOpponentScore ?? 0);
-              const oldOutcome = getOutcomeDelta(oldScore ?? 0, oldOpponentScore ?? 0, -1);
+              const oldOutcome = getOutcomeDelta(oldScore ?? 0, oldOpponentScore ?? 0, -1); // -1 to subtract
               updates.won += oldOutcome.dWon;
               updates.drawn += oldOutcome.dDrawn;
               updates.lost += oldOutcome.dLost;
               updates.points += oldOutcome.dPoints;
             }
 
-            // If the match is now completed (and wasn't before or its score changed), apply its new impact
+            // Step 2: If the match's new status is 'completed', apply its new contribution.
             if (newStatus === 'completed') {
               needsDbUpdate = true;
-              // Only increment played if it wasn't completed before
-              if (oldMatchDetails.status !== 'completed') {
-                updates.played += 1;
-              }
-              // Add goals if it wasn't completed before, or adjust if scores changed
-              if (oldMatchDetails.status !== 'completed') {
-                updates.goals_for += currentScore;
-                updates.goals_against += opponentScore;
-              } else { // It was already completed, so goals_for was already reduced by oldScore
-                updates.goals_for += currentScore; // Effectively old_GF - oldScore_A + newScore_A
-                updates.goals_against += opponentScore; // Effectively old_GA - oldScore_B + newScore_B
-              }
+              updates.played += 1; 
+              updates.goals_for += currentScore; 
+              updates.goals_against += opponentScore;
               
-              const newOutcome = getOutcomeDelta(currentScore, opponentScore, 1);
+              const newOutcome = getOutcomeDelta(currentScore, opponentScore, 1); // +1 to add
               updates.won += newOutcome.dWon;
               updates.drawn += newOutcome.dDrawn;
               updates.lost += newOutcome.dLost;
@@ -391,7 +381,6 @@ export default function AdminMatchesPage() {
             }
             
             if (needsDbUpdate) {
-              // Ensure stats don't go negative (especially if DB was somehow inconsistent)
               updates.played = Math.max(0, updates.played);
               updates.won = Math.max(0, updates.won);
               updates.drawn = Math.max(0, updates.drawn);
@@ -451,18 +440,13 @@ export default function AdminMatchesPage() {
       duration: data.duration,
       player_of_the_match_id: data.playerOfTheMatchId === "NONE_SELECTED_POTM_VALUE" ? null : data.playerOfTheMatchId || null,
     };
-    // If the match was originally scheduled and is being edited (even if status changes),
-    // we need to ensure these base fields are part of the update if they were editable.
-    // Supabase update only sends changed fields if they are in the payload.
-    // For this form, teamA/B, datetime, venue are only editable if status *was* 'scheduled'.
-    // But they must persist if status changes.
+    
     if (selectedMatch.status === 'scheduled' || oldMatchDetails.status === 'scheduled') {
         updatedMatchPayload.team_a_id = selectedMatch.teamA.id;
         updatedMatchPayload.team_b_id = selectedMatch.teamB.id;
         updatedMatchPayload.date_time = new Date(selectedMatch.dateTime).toISOString();
         updatedMatchPayload.venue = selectedMatch.venue;
     }
-
 
     const { data: updatedMatchFromDb, error } = await supabase
       .from('matches')
@@ -476,18 +460,15 @@ export default function AdminMatchesPage() {
     } else if (updatedMatchFromDb) {
       const locallyMappedUpdatedMatch = mapSupabaseMatchToLocal(updatedMatchFromDb as SupabaseMatch, teams, allPlayers);
       
-      // Call standings sync *before* updating local React state for matches list
-      // This ensures `oldMatchDetails` (from `selectedMatch`) is the state *before* this save.
       await syncGroupStandingsForMatch(
         selectedMatch.teamA.id,
         selectedMatch.teamB.id,
-        updatedMatchFromDb.score_a ?? 0,
-        updatedMatchFromDb.score_b ?? 0,
+        updatedMatchFromDb.score_a ?? 0, // This is new score for Team A
+        updatedMatchFromDb.score_b ?? 0, // This is new score for Team B
         updatedMatchFromDb.status,
-        oldMatchDetails // Pass the state *before* this update
+        oldMatchDetails 
       );
       
-      // Now update local React state
       setMatches(prevMatches =>
         prevMatches.map(m =>
           m.id === selectedMatch.id
@@ -499,22 +480,22 @@ export default function AdminMatchesPage() {
       toast({ title: "Match Updated", description: `Match details for ${selectedMatch.teamA.name} vs ${selectedMatch.teamB.name} updated.` });
       
       setIsEditModalOpen(false);
-      setSelectedMatch(null); // Clear selected match after successful update
+      setSelectedMatch(null); 
     }
     setIsUpdatingMatch(false);
   };
 
   const handleDeleteMatch = async (matchId: string, matchIdentifier: string) => {
-    // Important: If deleting a completed match, its stats should be reversed from group standings.
     const matchToDelete = matches.find(m => m.id === matchId);
     if (matchToDelete && matchToDelete.status === 'completed') {
+        // Treat deletion of a completed match as setting its scores to 0 and status to 'scheduled' for stat reversal
         await syncGroupStandingsForMatch(
             matchToDelete.teamA.id,
             matchToDelete.teamB.id,
-            0, // "New" scores are effectively zero impact
-            0, // "New" scores are effectively zero impact
-            'scheduled', // Pretend new status is 'scheduled' to trigger reversal
-            { scoreA: matchToDelete.scoreA, scoreB: matchToDelete.scoreB, status: 'completed' } // Old status was 'completed'
+            0, 
+            0, 
+            'scheduled', 
+            { scoreA: matchToDelete.scoreA, scoreB: matchToDelete.scoreB, status: 'completed' } 
         );
     }
 
@@ -538,14 +519,8 @@ export default function AdminMatchesPage() {
     ].sort((a,b) => a.name.localeCompare(b.name))
     : [];
   
-  // For substitutions: players currently on field (based on lineups if available, else full roster)
-  // This is a simplification; a real system would track active players dynamically.
   const playersOnFieldForSubOut = selectedMatch ? playersForEventsAndPOTM : []; 
-  
-  // For substitutions: players available to come in (full roster minus those explicitly on field if lineups are detailed)
   const allAvailableSubstitutesForSubIn = selectedMatch ? playersForEventsAndPOTM : [];
-
-
   
   return (
     <div className="space-y-8">
@@ -752,17 +727,16 @@ export default function AdminMatchesPage() {
             <ScrollArea className="max-h-[calc(90vh-150px)] pr-6">
             <Form {...updateForm}>
               <form onSubmit={updateForm.handleSubmit(onUpdateMatchSubmit)} className="space-y-4 py-2">
-                {selectedMatch.status === 'scheduled' && oldMatchDetails.status === 'scheduled' && ( // Only allow editing these if match *is currently* scheduled
+                {selectedMatch.status === 'scheduled' && (
                     <>
                         <FormField
                             control={scheduleForm.control} 
                             name="teamAId" 
-                            render={({ field }) => ( // This field isn't actually part of updateForm, but needed for context
+                            render={({ field }) => ( 
                                 <FormItem>
                                 <FormLabel>Team A (Scheduled)</FormLabel>
                                 <Select 
                                     onValueChange={(value) => {
-                                        // field.onChange(value); // This field belongs to scheduleForm
                                         setSelectedMatch(prev => prev ? {...prev, teamA: teams.find(t => t.id === value) || prev.teamA} : null);
                                     }} 
                                     defaultValue={selectedMatch.teamA.id} 
@@ -782,14 +756,13 @@ export default function AdminMatchesPage() {
                             )}
                         />
                          <FormField
-                            control={scheduleForm.control}  // This field isn't actually part of updateForm
+                            control={scheduleForm.control} 
                             name="teamBId" 
                             render={({ field }) => (
                                 <FormItem>
                                 <FormLabel>Team B (Scheduled)</FormLabel>
                                  <Select 
                                     onValueChange={(value) => {
-                                        // field.onChange(value);
                                         setSelectedMatch(prev => prev ? {...prev, teamB: teams.find(t => t.id === value) || prev.teamB} : null);
                                     }} 
                                     defaultValue={selectedMatch.teamB.id} 
@@ -1023,4 +996,3 @@ export default function AdminMatchesPage() {
   );
 }
     
-
