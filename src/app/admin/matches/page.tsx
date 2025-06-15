@@ -15,6 +15,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { CalendarClock, PlusCircle, Edit, Trash2, Goal, CreditCardIcon, Loader2 } from 'lucide-react';
 import type { Match, Team, Player, MatchEvent, GoalEvent, CardEvent, SupabaseMatch } from '@/types';
+import type { Tables } from '@/types/supabase';
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from '@/lib/supabaseClient';
 import { placeholderTeamLogo } from '@/lib/data'; 
@@ -244,39 +245,126 @@ export default function AdminMatchesPage() {
     toast({ title: "Event Removed (Locally)", description: "Save changes to persist."});
   };
 
+  const updateGroupStandings = useCallback(async (
+    teamAId: string,
+    teamBId: string,
+    finalScoreA: number,
+    finalScoreB: number
+  ) => {
+    try {
+      const teamsToProcess = [
+        { teamId: teamAId, matchScore: finalScoreA, opponentMatchScore: finalScoreB },
+        { teamId: teamBId, matchScore: finalScoreB, opponentMatchScore: finalScoreA },
+      ];
+
+      let standingsActuallyUpdated = false;
+
+      for (const { teamId, matchScore, opponentMatchScore } of teamsToProcess) {
+        // Find all group_teams entries for this team. A team might be in multiple groups theoretically,
+        // but for tournament logic, it's typically one. This handles if it's >1 for some reason.
+        const { data: groupTeamEntries, error: fetchError } = await supabase
+          .from('group_teams')
+          .select('*')
+          .eq('team_id', teamId);
+
+        if (fetchError) {
+          console.error(`Error fetching group standings for team ${teamId}: ${fetchError.message}`);
+          toast({ variant: "destructive", title: "Standings Fetch Error", description: `Could not fetch standings for team ID ${teamId}. This team's standings were not updated.` });
+          continue; // Skip this team, try to update the other
+        }
+        
+        if (groupTeamEntries && groupTeamEntries.length > 0) {
+          for (const groupTeamEntry of groupTeamEntries) {
+            const updates: Partial<Tables<'group_teams'>> = {
+              played: (groupTeamEntry.played || 0) + 1,
+              goals_for: (groupTeamEntry.goals_for || 0) + matchScore,
+              goals_against: (groupTeamEntry.goals_against || 0) + opponentMatchScore,
+              points: groupTeamEntry.points || 0,
+              won: groupTeamEntry.won || 0,
+              drawn: groupTeamEntry.drawn || 0,
+              lost: groupTeamEntry.lost || 0,
+            };
+
+            if (matchScore > opponentMatchScore) { // Team won
+              updates.won = (updates.won || 0) + 1;
+              updates.points = (updates.points || 0) + 3;
+            } else if (matchScore < opponentMatchScore) { // Team lost
+              updates.lost = (updates.lost || 0) + 1;
+            } else { // Draw
+              updates.drawn = (updates.drawn || 0) + 1;
+              updates.points = (updates.points || 0) + 1;
+            }
+
+            const { error: updateError } = await supabase
+              .from('group_teams')
+              .update(updates)
+              .eq('id', groupTeamEntry.id); // group_teams has its own 'id' primary key
+
+            if (updateError) {
+              console.error(`Error updating group standings for team ${teamId} (group_team_id: ${groupTeamEntry.id}): ${updateError.message}`);
+              toast({ variant: "destructive", title: "Standings Update Error", description: `Failed to update standings for team ID ${teamId}.` });
+            } else {
+              standingsActuallyUpdated = true;
+            }
+          }
+        }
+      }
+      if (standingsActuallyUpdated) {
+         toast({ title: "Group Standings Updated", description: "Relevant group standings have been recalculated based on the match result." });
+      }
+      // If neither team was found in group_teams, no specific toast is needed here unless desired.
+    } catch (error: any) {
+      console.error("Unexpected error in updateGroupStandings logic:", error);
+      toast({ variant: "destructive", title: "Standings Logic Error", description: error.message || "An unexpected error occurred while updating standings." });
+    }
+  }, [toast]);
+
+
   const onUpdateMatchSubmit: SubmitHandler<UpdateMatchFormValues> = async (data) => {
     if (!selectedMatch) return;
     setIsUpdatingMatch(true);
     
-    const updatedMatchData = {
+    const updatedMatchPayload = {
       score_a: data.status !== 'scheduled' ? (data.scoreA ?? selectedMatch.scoreA ?? 0) : null,
       score_b: data.status !== 'scheduled' ? (data.scoreB ?? selectedMatch.scoreB ?? 0) : null,
       status: data.status,
       events: selectedMatch.events || [],
-      team_a_id: selectedMatch.teamA.id,
+      team_a_id: selectedMatch.teamA.id, // Keep these in case they were editable for scheduled matches
       team_b_id: selectedMatch.teamB.id,
       date_time: new Date(selectedMatch.dateTime).toISOString(),
       venue: selectedMatch.venue,
     };
 
-    const { data: dbData, error } = await supabase
+    const { data: updatedMatchFromDb, error } = await supabase
       .from('matches')
-      .update(updatedMatchData)
+      .update(updatedMatchPayload)
       .eq('id', selectedMatch.id)
       .select()
       .single();
 
     if (error) {
       toast({ variant: "destructive", title: "Failed to Update Match", description: error.message });
-    } else if (dbData) {
+    } else if (updatedMatchFromDb) {
+      const locallyMappedUpdatedMatch = mapSupabaseMatchToLocal(updatedMatchFromDb as SupabaseMatch, teams);
       setMatches(prevMatches =>
         prevMatches.map(m =>
           m.id === selectedMatch.id
-            ? mapSupabaseMatchToLocal(dbData as SupabaseMatch, teams)
+            ? locallyMappedUpdatedMatch
             : m
         ).sort((a,b) => new Date(b.dateTime).getTime() - new Date(a.dateTime).getTime())
       );
+      
       toast({ title: "Match Updated", description: `Match details for ${selectedMatch.teamA.name} vs ${selectedMatch.teamB.name} updated.` });
+      
+      // If match is completed, update group standings
+      if (updatedMatchFromDb.status === 'completed') {
+        const finalScoreA = updatedMatchFromDb.score_a ?? 0;
+        const finalScoreB = updatedMatchFromDb.score_b ?? 0;
+        // Call updateGroupStandings AFTER match update is successful and state is set
+        // Make sure selectedMatch.teamA.id and selectedMatch.teamB.id are valid
+        await updateGroupStandings(selectedMatch.teamA.id, selectedMatch.teamB.id, finalScoreA, finalScoreB);
+      }
+      
       setIsEditModalOpen(false);
       setSelectedMatch(null);
     }
