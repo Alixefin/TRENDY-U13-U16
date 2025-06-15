@@ -11,19 +11,22 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from '@/components/ui/form';
-import { Settings2, ImagePlus, Loader2 } from 'lucide-react';
-import { placeholderTeamLogo } from '@/lib/data'; 
+import { Settings2, Loader2 } from 'lucide-react';
+import { placeholderTeamLogo } from '@/lib/data';
 import type { TournamentInfo } from '@/types';
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from '@/lib/supabaseClient';
+import type { Tables } from '@/types/supabase';
+
+type TournamentSettingsRow = Tables<'tournament_settings'>;
 
 const settingsSchema = z.object({
   name: z.string().min(5, { message: "Tournament name must be at least 5 characters." }),
   about: z.string().min(20, { message: "About section must be at least 20 characters." }).nullable(),
   logoFile: z.instanceof(File).optional(),
-  logoUrl: z.string().url("Must be a valid URL or will be auto-generated.").nullable().optional(),
+  logoUrlDisplay: z.string().optional(), // Only for displaying current URL, not for submission of URL
   knockoutImageFile: z.instanceof(File).optional(),
-  knockoutImageUrl: z.string().url("Must be a valid URL or will be auto-generated.").nullable().optional(),
+  knockoutImageUrlDisplay: z.string().optional(), // Only for displaying current URL
 });
 
 type SettingsFormValues = z.infer<typeof settingsSchema>;
@@ -36,13 +39,25 @@ const defaultTournamentSettings: TournamentInfo = {
   knockoutImageUrl: `https://placehold.co/800x500/F0FAF4/50C878.png?text=Knockout+Diagram&font=poppins`,
 };
 
+// Helper to map from DB row (snake_case) to TournamentInfo (camelCase)
+const mapDbRowToTournamentInfo = (dbRow: TournamentSettingsRow): TournamentInfo => {
+  return {
+    id: dbRow.id,
+    name: dbRow.name,
+    about: dbRow.about,
+    logoUrl: dbRow.logo_url,
+    knockoutImageUrl: dbRow.knockout_image_url,
+    updated_at: dbRow.updated_at,
+  };
+};
+
 
 export default function AdminSettingsPage() {
   const [tournamentSettings, setTournamentSettings] = useState<TournamentInfo>(defaultTournamentSettings);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { toast } = useToast();
-  
+
   const [tournamentLogoPreview, setTournamentLogoPreview] = useState<string | null>(null);
   const [knockoutImagePreview, setKnockoutImagePreview] = useState<string | null>(null);
 
@@ -51,11 +66,11 @@ export default function AdminSettingsPage() {
     defaultValues: {
       name: defaultTournamentSettings.name,
       about: defaultTournamentSettings.about,
-      logoUrl: defaultTournamentSettings.logoUrl,
-      knockoutImageUrl: defaultTournamentSettings.knockoutImageUrl,
+      logoUrlDisplay: defaultTournamentSettings.logoUrl || undefined,
+      knockoutImageUrlDisplay: defaultTournamentSettings.knockoutImageUrl || undefined,
     },
   });
-  
+
   const fetchSettings = useCallback(async () => {
     setIsLoading(true);
     const { data, error } = await supabase
@@ -66,18 +81,31 @@ export default function AdminSettingsPage() {
 
     if (error || !data) {
       toast({ variant: "destructive", title: "Failed to load settings", description: error?.message || "No settings found. Using defaults." });
-      setTournamentSettings(defaultTournamentSettings);
-      form.reset(defaultTournamentSettings);
-      setTournamentLogoPreview(defaultTournamentSettings.logoUrl);
-      setKnockoutImagePreview(defaultTournamentSettings.knockoutImageUrl);
+      const mappedDefault = mapDbRowToTournamentInfo({ // Ensure default is also mapped if used
+        id: defaultTournamentSettings.id || 1,
+        name: defaultTournamentSettings.name,
+        about: defaultTournamentSettings.about,
+        logo_url: defaultTournamentSettings.logoUrl,
+        knockout_image_url: defaultTournamentSettings.knockoutImageUrl,
+        updated_at: new Date().toISOString(),
+      });
+      setTournamentSettings(mappedDefault);
+      form.reset({
+        name: mappedDefault.name,
+        about: mappedDefault.about,
+        logoUrlDisplay: mappedDefault.logoUrl || undefined,
+        knockoutImageUrlDisplay: mappedDefault.knockoutImageUrl || undefined,
+      });
+      setTournamentLogoPreview(mappedDefault.logoUrl);
+      setKnockoutImagePreview(mappedDefault.knockoutImageUrl);
     } else {
-      const fetchedSettings = data as TournamentInfo;
+      const fetchedSettings = mapDbRowToTournamentInfo(data as TournamentSettingsRow);
       setTournamentSettings(fetchedSettings);
       form.reset({
         name: fetchedSettings.name,
         about: fetchedSettings.about,
-        logoUrl: fetchedSettings.logoUrl,
-        knockoutImageUrl: fetchedSettings.knockoutImageUrl,
+        logoUrlDisplay: fetchedSettings.logoUrl || undefined,
+        knockoutImageUrlDisplay: fetchedSettings.knockoutImageUrl || undefined,
       });
       setTournamentLogoPreview(fetchedSettings.logoUrl);
       setKnockoutImagePreview(fetchedSettings.knockoutImageUrl);
@@ -100,7 +128,7 @@ export default function AdminSettingsPage() {
       };
       reader.readAsDataURL(file);
     } else {
-      setTournamentLogoPreview(tournamentSettings.logoUrl); 
+      setTournamentLogoPreview(tournamentSettings.logoUrl);
       form.setValue('logoFile', undefined);
     }
   };
@@ -115,15 +143,15 @@ export default function AdminSettingsPage() {
       };
       reader.readAsDataURL(file);
     } else {
-      setKnockoutImagePreview(tournamentSettings.knockoutImageUrl || null); 
+      setKnockoutImagePreview(tournamentSettings.knockoutImageUrl || null);
       form.setValue('knockoutImageFile', undefined);
     }
   };
 
   const onSubmit: SubmitHandler<SettingsFormValues> = async (data) => {
     setIsSubmitting(true);
-    
-    let finalLogoUrl = tournamentSettings.logoUrl; // Start with existing URL
+
+    let newLogoUrl = tournamentSettings.logoUrl;
     if (data.logoFile) {
         const file = data.logoFile;
         const fileName = `tournament_logo_${Date.now()}.${file.name.split('.').pop()}`;
@@ -137,48 +165,62 @@ export default function AdminSettingsPage() {
             return;
         }
         const { data: publicUrlData } = supabase.storage.from('tournament-assets').getPublicUrl(uploadData.path);
-        finalLogoUrl = publicUrlData.publicUrl;
+        newLogoUrl = publicUrlData.publicUrl;
     }
 
-    let finalKnockoutImageUrl = tournamentSettings.knockoutImageUrl; // Start with existing URL
+    let newKnockoutImageUrl = tournamentSettings.knockoutImageUrl;
     if (data.knockoutImageFile) {
         const file = data.knockoutImageFile;
         const fileName = `knockout_diagram_${Date.now()}.${file.name.split('.').pop()}`;
         const { data: uploadData, error: uploadError } = await supabase.storage
             .from('tournament-assets')
             .upload(fileName, file, { upsert: true });
-        
+
         if (uploadError) {
             toast({ variant: "destructive", title: "Knockout Image Upload Failed", description: uploadError.message });
             setIsSubmitting(false);
             return;
         }
         const { data: publicUrlData } = supabase.storage.from('tournament-assets').getPublicUrl(uploadData.path);
-        finalKnockoutImageUrl = publicUrlData.publicUrl;
+        newKnockoutImageUrl = publicUrlData.publicUrl;
     }
-    
-    const settingsToUpdate = {
+
+    const settingsToUpdate: Partial<TournamentSettingsRow> & { updated_at: string } = {
         name: data.name,
         about: data.about,
-        logo_url: finalLogoUrl || placeholderTeamLogo('TT'), // Fallback for logo
-        knockout_image_url: finalKnockoutImageUrl || `https://placehold.co/800x500/F0FAF4/50C878.png?text=Knockout+Diagram&font=poppins`, // Fallback for knockout
+        logo_url: newLogoUrl || placeholderTeamLogo('TT'),
+        knockout_image_url: newKnockoutImageUrl || `https://placehold.co/800x500/F0FAF4/50C878.png?text=Knockout+Diagram&font=poppins`,
         updated_at: new Date().toISOString(),
     };
+    
+    // Remove id from settingsToUpdate if it exists, as it's not needed for update payload based on .eq('id',1)
+    const { id, ...updatePayload } = settingsToUpdate;
 
-    const { data: updatedData, error: updateError } = await supabase
+
+    const { data: updatedDbData, error: updateError } = await supabase
         .from('tournament_settings')
-        .update(settingsToUpdate)
+        .update(updatePayload)
         .eq('id', 1)
         .select()
         .single();
 
     if (updateError) {
         toast({ variant: "destructive", title: "Failed to Update Settings", description: updateError.message });
-    } else if (updatedData) {
-        setTournamentSettings(updatedData as TournamentInfo);
-        setTournamentLogoPreview(updatedData.logo_url);
-        setKnockoutImagePreview(updatedData.knockout_image_url);
-        toast({ title: "Settings Updated", description: "Tournament information has been saved to Supabase." });
+    } else if (updatedDbData) {
+        const updatedSettings = mapDbRowToTournamentInfo(updatedDbData as TournamentSettingsRow);
+        setTournamentSettings(updatedSettings);
+        // Reset form to reflect newly saved state, including image URLs for display fields
+        form.reset({
+            name: updatedSettings.name,
+            about: updatedSettings.about,
+            logoFile: undefined, // Clear file input
+            knockoutImageFile: undefined, // Clear file input
+            logoUrlDisplay: updatedSettings.logoUrl || undefined,
+            knockoutImageUrlDisplay: updatedSettings.knockoutImageUrl || undefined,
+        });
+        setTournamentLogoPreview(updatedSettings.logoUrl);
+        setKnockoutImagePreview(updatedSettings.knockoutImageUrl);
+        toast({ title: "Settings Updated", description: "Tournament information has been saved." });
     }
     setIsSubmitting(false);
   };
@@ -242,11 +284,11 @@ export default function AdminSettingsPage() {
                   </FormItem>
                 )}
               />
-              
+
               <FormField
                 control={form.control}
-                name="logoFile" 
-                render={({ field }) => ( // field is not directly used for value, but needed for RHF state
+                name="logoFile"
+                render={() => (
                   <FormItem>
                     <FormLabel>Tournament Logo</FormLabel>
                     <FormControl>
@@ -265,8 +307,8 @@ export default function AdminSettingsPage() {
 
               <FormField
                 control={form.control}
-                name="knockoutImageFile" 
-                render={({ field }) => ( // field not directly used
+                name="knockoutImageFile"
+                render={() => (
                   <FormItem>
                     <FormLabel>Knockout Stage Progression Image</FormLabel>
                     <FormControl>
@@ -293,21 +335,21 @@ export default function AdminSettingsPage() {
       </Card>
        <Card className="mt-6">
         <CardHeader>
-            <CardTitle>Current Displayed Info (from Supabase)</CardTitle>
+            <CardTitle>Current Displayed Info (from State reflecting Supabase)</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2">
             <p><strong>Name:</strong> {tournamentSettings.name}</p>
             <p><strong>About:</strong> {tournamentSettings.about || 'Not set'}</p>
             <div>
                 <strong>Logo:</strong>
-                {tournamentSettings.logoUrl ? 
-                    <Image src={tournamentSettings.logoUrl} alt="Current tournament logo" width={64} height={64} className="mt-1 rounded-md border p-1" data-ai-hint="logo"/> : 
+                {tournamentSettings.logoUrl ?
+                    <Image src={tournamentSettings.logoUrl} alt="Current tournament logo" width={64} height={64} className="mt-1 rounded-md border p-1" data-ai-hint="logo"/> :
                     <span className="text-muted-foreground"> Not set</span>}
             </div>
              <div>
                 <strong>Knockout Diagram:</strong>
-                {tournamentSettings.knockoutImageUrl ? 
-                    <Image src={tournamentSettings.knockoutImageUrl} alt="Current knockout diagram" width={240} height={150} className="mt-1 rounded-md border p-1 object-contain" data-ai-hint="diagram"/> : 
+                {tournamentSettings.knockoutImageUrl ?
+                    <Image src={tournamentSettings.knockoutImageUrl} alt="Current knockout diagram" width={240} height={150} className="mt-1 rounded-md border p-1 object-contain" data-ai-hint="diagram"/> :
                     <span className="text-muted-foreground"> Not set</span>}
             </div>
         </CardContent>
@@ -315,3 +357,5 @@ export default function AdminSettingsPage() {
     </div>
   );
 }
+
+    
