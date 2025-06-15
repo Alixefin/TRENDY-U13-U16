@@ -3,11 +3,28 @@ import React from 'react';
 import Image from 'next/image';
 import TournamentHeader from '@/components/user/tournament/TournamentHeader';
 import GroupTable from '@/components/user/tournament/GroupTable';
-import { placeholderTeamLogo, mockTournamentInfo } from '@/lib/data'; 
+import { placeholderTeamLogo, mockTournamentInfo } from '@/lib/data';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import type { Metadata } from 'next';
 import { supabase } from '@/lib/supabaseClient';
 import type { TournamentInfo, Group, Team, GroupTeam, Player } from '@/types';
+import type { Tables } from '@/types/supabase';
+
+type TournamentSettingsRow = Tables<'tournament_settings'>;
+
+// Helper to map from DB row (snake_case) to TournamentInfo (camelCase)
+// Consistent with the one in admin/settings for clarity, could be moved to lib/data if preferred
+const mapDbRowToTournamentInfoUser = (dbRow: TournamentSettingsRow): TournamentInfo => {
+  return {
+    id: dbRow.id,
+    name: dbRow.name,
+    about: dbRow.about,
+    logoUrl: dbRow.logo_url, // Maps snake_case to camelCase
+    knockoutImageUrl: dbRow.knockout_image_url, // Maps snake_case to camelCase
+    updated_at: dbRow.updated_at,
+  };
+};
+
 
 const mapDbTeamToGroupTeam = (dbTeamEntry: any): GroupTeam => {
   const team: Team = {
@@ -15,7 +32,7 @@ const mapDbTeamToGroupTeam = (dbTeamEntry: any): GroupTeam => {
     name: dbTeamEntry.team.name,
     logoUrl: dbTeamEntry.team.logo_url || placeholderTeamLogo(dbTeamEntry.team.name),
     coachName: dbTeamEntry.team.coach_name || 'N/A',
-    players: (dbTeamEntry.team.players as Player[] || []), // Assuming players might be joined
+    players: (dbTeamEntry.team.players as Player[] || []),
   };
   return {
     team: team,
@@ -27,8 +44,7 @@ const mapDbTeamToGroupTeam = (dbTeamEntry: any): GroupTeam => {
     goalsAgainst: dbTeamEntry.goals_against,
     goalDifference: dbTeamEntry.goals_for - dbTeamEntry.goals_against,
     points: dbTeamEntry.points,
-    // isLive and liveScore would require more complex logic, defaulting to false/undefined
-    isLive: false, 
+    isLive: false,
     liveScore: undefined,
   };
 };
@@ -36,7 +52,7 @@ const mapDbTeamToGroupTeam = (dbTeamEntry: any): GroupTeam => {
 async function getTournamentPageData() {
   let tournamentInfo: TournamentInfo | null = null;
   let groups: Group[] = [];
-  
+
   const { data: settingsData, error: settingsError } = await supabase
     .from('tournament_settings')
     .select('*')
@@ -45,9 +61,17 @@ async function getTournamentPageData() {
 
   if (settingsError || !settingsData) {
     console.error("Error fetching tournament settings for user page:", settingsError?.message);
-    tournamentInfo = mockTournamentInfo; // Use mock as fallback
+    // Use mockTournamentInfo as fallback, ensuring it matches the TournamentInfo structure
+    tournamentInfo = {
+        id: mockTournamentInfo.id || 1,
+        name: mockTournamentInfo.name,
+        about: mockTournamentInfo.about,
+        logoUrl: mockTournamentInfo.logoUrl, // Already camelCase in mock
+        knockoutImageUrl: mockTournamentInfo.knockoutImageUrl, // Already camelCase in mock
+    };
   } else {
-    tournamentInfo = settingsData as TournamentInfo;
+    // Map the fetched snake_case data to camelCase TournamentInfo
+    tournamentInfo = mapDbRowToTournamentInfoUser(settingsData as TournamentSettingsRow);
   }
 
   const { data: dbGroups, error: groupsError } = await supabase
@@ -56,7 +80,6 @@ async function getTournamentPageData() {
 
   if (groupsError) {
     console.error("Error fetching groups:", groupsError.message);
-    // Potentially use mockGroups as fallback or return empty
   } else if (dbGroups) {
     for (const dbGroup of dbGroups) {
       const { data: groupTeamsData, error: groupTeamsError } = await supabase
@@ -69,11 +92,11 @@ async function getTournamentPageData() {
           goals_for,
           goals_against,
           points,
-          team:teams (id, name, logo_url, coach_name) 
+          team:teams (id, name, logo_url, coach_name)
         `)
         .eq('group_id', dbGroup.id)
         .order('points', { ascending: false })
-        .order('goals_for', { ascending: false }); // Consider goal_difference if available
+        .order('goals_for', { ascending: false });
 
       if (groupTeamsError) {
         console.error(`Error fetching teams for group ${dbGroup.name}:`, groupTeamsError.message);
@@ -84,11 +107,9 @@ async function getTournamentPageData() {
       }
     }
   }
-  
-  // If groups are empty after fetching (e.g. error or no data), could use mock as fallback
+
   if (groups.length === 0) {
     console.warn("No groups fetched from Supabase, falling back to empty or consider mock groups.");
-    // groups = mockGroups; // Example fallback
   }
 
 
@@ -96,7 +117,6 @@ async function getTournamentPageData() {
 }
 
 export async function generateMetadata(): Promise<Metadata> {
-  // Fetch minimal data for metadata, or rely on defaults if initial fetch is slow
   let tournamentName = "Tournament Overview";
   try {
     const { data: settingsData } = await supabase
@@ -106,7 +126,7 @@ export async function generateMetadata(): Promise<Metadata> {
       .single();
     if (settingsData?.name) tournamentName = settingsData.name;
   } catch (e) { /* ignore */ }
-  
+
   return {
     title: `${tournamentName} | Trendy's Tournament Tracker`,
     description: `View tournament details, group standings, and progression for ${tournamentName}.`,
@@ -118,14 +138,13 @@ export default async function TournamentPage() {
   const { tournamentInfo, groups } = await getTournamentPageData();
 
   if (!tournamentInfo) {
-    // This case should ideally be handled by the fallback in getTournamentPageData
     return <div className="container mx-auto py-8 px-4 text-center">Error loading tournament information.</div>;
   }
 
   return (
     <div className="container mx-auto py-8 px-4">
       <TournamentHeader info={tournamentInfo} />
-      
+
       <h2 className="text-2xl font-headline font-bold mb-6 text-center md:text-left">Group Standings</h2>
       {groups.length > 0 ? (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
@@ -147,12 +166,12 @@ export default async function TournamentPage() {
         <CardContent>
           {tournamentInfo.knockoutImageUrl ? (
             <div className="relative w-full aspect-[16/10] md:aspect-[16/9] rounded-lg overflow-hidden border-2 border-muted bg-muted/20">
-              <Image 
-                src={tournamentInfo.knockoutImageUrl} 
-                alt="Tournament knockout stage progression diagram" 
+              <Image
+                src={tournamentInfo.knockoutImageUrl}
+                alt="Tournament knockout stage progression diagram"
                 fill={true}
                 style={{objectFit: "contain"}}
-                data-ai-hint="diagram chart" 
+                data-ai-hint="diagram chart"
               />
             </div>
           ) : (
