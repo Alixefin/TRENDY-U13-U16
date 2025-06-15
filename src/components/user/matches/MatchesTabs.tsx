@@ -21,7 +21,7 @@ const MatchesTabs: React.FC<MatchesTabsProps> = ({ matches }) => {
   }, []);
 
   const scheduledMatches = useMemo(() => {
-    if (!clientNow) return []; // Return empty or all matches initially until clientNow is set
+    if (!clientNow) return [];
     return matches.filter(match => match.status === 'scheduled' && new Date(match.dateTime) > clientNow &&
       (match.teamA.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
        match.teamB.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -30,7 +30,7 @@ const MatchesTabs: React.FC<MatchesTabsProps> = ({ matches }) => {
   }, [matches, searchTerm, clientNow]);
 
   const liveMatches = useMemo(() =>
-    matches.filter(match => match.status === 'live' &&
+    matches.filter(match => (match.status === 'live' || match.status === 'halftime') &&
       (match.teamA.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
        match.teamB.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
        match.venue.toLowerCase().includes(searchTerm.toLowerCase())))
@@ -43,12 +43,12 @@ const MatchesTabs: React.FC<MatchesTabsProps> = ({ matches }) => {
       (match.teamA.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
        match.teamB.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
        match.venue.toLowerCase().includes(searchTerm.toLowerCase())))
-    .sort((a, b) => new Date(b.dateTime).getTime() - new Date(a.dateTime).getTime()), // Show most recent first
+    .sort((a, b) => new Date(b.dateTime).getTime() - new Date(a.dateTime).getTime()), 
     [matches, searchTerm]
   );
 
   const renderMatchList = (matchList: Match[], emptyMessage: string) => {
-    if (!clientNow && matchList === scheduledMatches) { // Specifically for scheduled matches before clientNow is set
+    if (!clientNow && matchList === scheduledMatches) {
         return <p className="text-center text-muted-foreground py-8">Loading scheduled matches...</p>;
     }
     if (matchList.length === 0) {
@@ -80,7 +80,7 @@ const MatchesTabs: React.FC<MatchesTabsProps> = ({ matches }) => {
       </div>
 
       <Tabs defaultValue="live" className="w-full">
-        <TabsList className="grid w-full grid-cols-1 sm:grid-cols-3 mb-6">
+        <TabsList className="grid w-full grid-cols-3 mb-6">
           <TabsTrigger value="live">Live ({liveMatches.length})</TabsTrigger>
           <TabsTrigger value="scheduled">Scheduled ({scheduledMatches.length})</TabsTrigger>
           <TabsTrigger value="played">Played ({playedMatches.length})</TabsTrigger>

@@ -18,7 +18,7 @@ export interface Team {
 
 export interface MatchEventBase {
   id: string; 
-  time: string; 
+  time: string; // e.g., "45", "45+2", "90"
   teamId?: string; 
   playerId?: string; 
   playerName?: string; 
@@ -36,10 +36,10 @@ export interface CardEvent extends MatchEventBase {
 
 export interface SubstitutionEvent extends MatchEventBase {
   type: 'substitution';
-  playerInId?: string;
-  playerInName?: string;
-  playerOutId?: string;
-  playerOutName?: string; 
+  playerInId: string; // Changed from optional
+  playerInName: string; // Changed from optional
+  playerOutId: string; // Changed from optional
+  playerOutName: string; // Changed from optional
 }
 
 export type MatchEvent = GoalEvent | CardEvent | SubstitutionEvent;
@@ -50,12 +50,15 @@ export interface Match {
   teamB: Team; 
   dateTime: Date; 
   venue: string; 
-  status: 'scheduled' | 'live' | 'completed'; 
+  status: 'scheduled' | 'live' | 'completed' | 'halftime'; 
   scoreA?: number; 
   scoreB?: number; 
   events?: MatchEvent[]; 
   lineupA?: Player[]; 
-  lineupB?: Player[]; 
+  lineupB?: Player[];
+  duration?: number; // Match duration in minutes
+  playerOfTheMatchId?: string; // ID of the player of the match
+  playerOfTheMatch?: Player; // Optional: full player object if fetched
 }
 
 export interface SupabaseMatch {
@@ -64,18 +67,20 @@ export interface SupabaseMatch {
     team_b_id: string;
     date_time: string; 
     venue: string | null;
-    status: 'scheduled' | 'live' | 'completed';
+    status: 'scheduled' | 'live' | 'completed' | 'halftime';
     score_a: number | null;
     score_b: number | null;
     events: unknown | null; 
     lineup_a_player_ids: string[] | null;
     lineup_b_player_ids: string[] | null;
     created_at?: string;
+    duration?: number | null;
+    player_of_the_match_id?: string | null;
 }
 
 
 export interface GroupTeam {
-  id?: string; // ID from the group_teams table
+  id?: string; 
   team: Team; 
   played: number;
   won: number;
@@ -97,13 +102,11 @@ export interface Group {
 }
 
 export interface TournamentInfo {
-  id?: number; // from Supabase, should be 1
+  id?: number; 
   name: string;
   about: string | null;
   logoUrl: string | null;
   knockoutImageUrl?: string | null;
   updated_at?: string;
 }
-    
-
     

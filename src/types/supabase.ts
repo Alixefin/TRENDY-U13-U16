@@ -1,3 +1,4 @@
+
 export type Json =
   | string
   | number
@@ -85,10 +86,12 @@ export type Database = {
         Row: {
           created_at: string
           date_time: string
+          duration: number | null
           events: Json | null
           id: string
           lineup_a_player_ids: string[] | null
           lineup_b_player_ids: string[] | null
+          player_of_the_match_id: string | null
           score_a: number | null
           score_b: number | null
           status: Database["public"]["Enums"]["match_status_enum"]
@@ -99,10 +102,12 @@ export type Database = {
         Insert: {
           created_at?: string
           date_time: string
+          duration?: number | null
           events?: Json | null
           id?: string
           lineup_a_player_ids?: string[] | null
           lineup_b_player_ids?: string[] | null
+          player_of_the_match_id?: string | null
           score_a?: number | null
           score_b?: number | null
           status?: Database["public"]["Enums"]["match_status_enum"]
@@ -113,10 +118,12 @@ export type Database = {
         Update: {
           created_at?: string
           date_time?: string
+          duration?: number | null
           events?: Json | null
           id?: string
           lineup_a_player_ids?: string[] | null
           lineup_b_player_ids?: string[] | null
+          player_of_the_match_id?: string | null
           score_a?: number | null
           score_b?: number | null
           status?: Database["public"]["Enums"]["match_status_enum"]
@@ -125,6 +132,13 @@ export type Database = {
           venue?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "matches_player_of_the_match_id_fkey"
+            columns: ["player_of_the_match_id"]
+            isOneToOne: false
+            referencedRelation: "players"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "matches_team_a_id_fkey"
             columns: ["team_a_id"]
@@ -232,7 +246,7 @@ export type Database = {
       [_ in never]: never
     }
     Enums: {
-      match_status_enum: "scheduled" | "live" | "completed"
+      match_status_enum: "scheduled" | "live" | "completed" | "halftime"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -348,7 +362,7 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      match_status_enum: ["scheduled", "live", "completed"],
+      match_status_enum: ["scheduled", "live", "completed", "halftime"],
     },
   },
 } as const

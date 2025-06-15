@@ -7,18 +7,20 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from '@/components/ui/form';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { CalendarClock, PlusCircle, Edit, Trash2, Goal, CreditCardIcon, Loader2 } from 'lucide-react';
-import type { Match, Team, Player, MatchEvent, GoalEvent, CardEvent, SupabaseMatch } from '@/types';
+import { CalendarClock, PlusCircle, Edit, Trash2, Goal, CreditCardIcon, Loader2, Users, Award } from 'lucide-react';
+import type { Match, Team, Player, MatchEvent, GoalEvent, CardEvent, SubstitutionEvent, SupabaseMatch } from '@/types';
 import type { Tables } from '@/types/supabase';
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from '@/lib/supabaseClient';
 import { placeholderTeamLogo } from '@/lib/data'; 
+import { ScrollArea } from '@/components/ui/scroll-area';
 
 const matchSchema = z.object({
   teamAId: z.string().min(1, "Please select Team A."),
@@ -27,6 +29,7 @@ const matchSchema = z.object({
     message: "Please enter a valid date and time.",
   }),
   venue: z.string().min(3, { message: "Venue must be at least 3 characters." }),
+  duration: z.coerce.number().min(1, "Duration must be positive").optional(),
 }).refine(data => data.teamAId !== data.teamBId, {
   message: "Team A and Team B cannot be the same.",
   path: ["teamBId"],
@@ -36,13 +39,22 @@ type MatchFormValues = z.infer<typeof matchSchema>;
 const updateMatchSchema = z.object({
   scoreA: z.coerce.number().min(0).optional(),
   scoreB: z.coerce.number().min(0).optional(),
-  status: z.enum(['scheduled', 'live', 'completed']),
+  status: z.enum(['scheduled', 'live', 'completed', 'halftime']),
+  duration: z.coerce.number().min(1).optional().nullable(),
+  playerOfTheMatchId: z.string().optional().nullable(),
 });
 type UpdateMatchFormValues = z.infer<typeof updateMatchSchema>;
 
-const mapSupabaseMatchToLocal = (sm: SupabaseMatch, teamsList: Team[]): Match => {
+const mapSupabaseMatchToLocal = (sm: SupabaseMatch, teamsList: Team[], allPlayers?: Player[]): Match => {
   const teamA = teamsList.find(t => t.id === sm.team_a_id);
   const teamB = teamsList.find(t => t.id === sm.team_b_id);
+  
+  let playerOfTheMatchObject;
+  if (sm.player_of_the_match_id && allPlayers) {
+    playerOfTheMatchObject = allPlayers.find(p => p.id === sm.player_of_the_match_id);
+  }
+
+
   return {
     id: sm.id,
     teamA: teamA || { id: sm.team_a_id, name: 'Unknown Team A', logoUrl: placeholderTeamLogo('?'), coachName: '', players: [] },
@@ -54,13 +66,17 @@ const mapSupabaseMatchToLocal = (sm: SupabaseMatch, teamsList: Team[]): Match =>
     scoreB: sm.score_b ?? undefined,
     events: (sm.events as MatchEvent[] | null) || [], 
     lineupA: [], 
-    lineupB: [], 
+    lineupB: [],
+    duration: sm.duration ?? undefined,
+    playerOfTheMatchId: sm.player_of_the_match_id ?? undefined,
+    playerOfTheMatch: playerOfTheMatchObject,
   };
 };
 
 export default function AdminMatchesPage() {
   const [matches, setMatches] = useState<Match[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
+  const [allPlayers, setAllPlayers] = useState<Player[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmittingMatch, setIsSubmittingMatch] = useState(false);
   const [isUpdatingMatch, setIsUpdatingMatch] = useState(false);
@@ -70,14 +86,20 @@ export default function AdminMatchesPage() {
 
   const [goalPlayerId, setGoalPlayerId] = useState('');
   const [goalTime, setGoalTime] = useState('');
+  
   const [cardPlayerId, setCardPlayerId] = useState('');
   const [cardType, setCardType] = useState<'yellow' | 'red'>('yellow');
   const [cardTime, setCardTime] = useState('');
   const [cardDetails, setCardDetails] = useState('');
 
+  const [subPlayerOutId, setSubPlayerOutId] = useState('');
+  const [subPlayerInId, setSubPlayerInId] = useState('');
+  const [subTime, setSubTime] = useState('');
+
+
   const scheduleForm = useForm<MatchFormValues>({
     resolver: zodResolver(matchSchema),
-    defaultValues: { teamAId: '', teamBId: '', dateTime: '', venue: '' },
+    defaultValues: { teamAId: '', teamBId: '', dateTime: '', venue: '', duration: 90 },
   });
 
   const updateForm = useForm<UpdateMatchFormValues>({
@@ -109,6 +131,9 @@ export default function AdminMatchesPage() {
       })) || [];
       setTeams(fetchedTeams);
 
+      const allFetchedPlayers = fetchedTeams.reduce((acc, team) => acc.concat(team.players), [] as Player[]);
+      setAllPlayers(allFetchedPlayers);
+
       const { data: matchesData, error: matchesError } = await supabase
         .from('matches')
         .select('*')
@@ -118,7 +143,7 @@ export default function AdminMatchesPage() {
         toast({ variant: "destructive", title: "Error fetching matches", description: matchesError.message });
         setMatches([]);
       } else {
-        setMatches(matchesData?.map(m => mapSupabaseMatchToLocal(m as SupabaseMatch, fetchedTeams)) || []);
+        setMatches(matchesData?.map(m => mapSupabaseMatchToLocal(m as SupabaseMatch, fetchedTeams, allFetchedPlayers)) || []);
       }
     }
     setIsLoading(false);
@@ -148,6 +173,7 @@ export default function AdminMatchesPage() {
         venue: data.venue,
         status: 'scheduled',
         events: [],
+        duration: data.duration,
       }])
       .select()
       .single();
@@ -155,7 +181,7 @@ export default function AdminMatchesPage() {
     if (error) {
       toast({ variant: "destructive", title: "Failed to Schedule Match", description: error.message });
     } else if (newMatchData) {
-      setMatches(prevMatches => [mapSupabaseMatchToLocal(newMatchData as SupabaseMatch, teams), ...prevMatches].sort((a,b) => new Date(b.dateTime).getTime() - new Date(a.dateTime).getTime()));
+      setMatches(prevMatches => [mapSupabaseMatchToLocal(newMatchData as SupabaseMatch, teams, allPlayers), ...prevMatches].sort((a,b) => new Date(b.dateTime).getTime() - new Date(a.dateTime).getTime()));
       toast({ title: "Match Scheduled", description: `Match between ${teamA.name} and ${teamB.name} has been scheduled.` });
       scheduleForm.reset();
     }
@@ -168,21 +194,29 @@ export default function AdminMatchesPage() {
       scoreA: match.scoreA ?? undefined,
       scoreB: match.scoreB ?? undefined,
       status: match.status,
+      duration: match.duration ?? undefined,
+      playerOfTheMatchId: match.playerOfTheMatchId ?? undefined,
     });
+    // Reset event form fields
     setGoalPlayerId(''); setGoalTime('');
     setCardPlayerId(''); setCardType('yellow'); setCardTime(''); setCardDetails('');
+    setSubPlayerOutId(''); setSubPlayerInId(''); setSubTime('');
     setIsEditModalOpen(true);
   };
   
   const getTeamForPlayer = (playerId: string, match: Match): Team | undefined => {
-    if (match.teamA.players.some(p => p.id === playerId)) return match.teamA;
-    if (match.teamB.players.some(p => p.id === playerId)) return match.teamB;
-    const teamA = teams.find(t => t.id === match.teamA.id);
-    if (teamA?.players.some(p => p.id === playerId)) return teamA;
-    const teamB = teams.find(t => t.id === match.teamB.id);
-    if (teamB?.players.some(p => p.id === playerId)) return teamB;
+    // Check fully populated teams first if available (e.g., from selectedMatch, which should have them)
+    if (match.teamA?.players?.some(p => p.id === playerId)) return match.teamA;
+    if (match.teamB?.players?.some(p => p.id === playerId)) return match.teamB;
+  
+    // Fallback to general teams list (less ideal as players might not be specific to this match's context)
+    const teamAFromList = teams.find(t => t.id === match.teamA.id);
+    if (teamAFromList?.players.some(p => p.id === playerId)) return teamAFromList;
+    const teamBFromList = teams.find(t => t.id === match.teamB.id);
+    if (teamBFromList?.players.some(p => p.id === playerId)) return teamBFromList;
     return undefined;
   };
+
 
   const handleAddGoal = () => {
     if (!selectedMatch || !goalPlayerId || !goalTime) {
@@ -196,7 +230,11 @@ export default function AdminMatchesPage() {
          return;
     }
     const player = playerTeam.players.find(p => p.id === goalPlayerId);
-    if (!player) return;
+    if (!player) {
+      toast({ variant: "destructive", title: "Error", description: "Player not found in team." });
+      return;
+    }
+
 
     const newGoalEvent: GoalEvent = {
       id: `event-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
@@ -208,7 +246,7 @@ export default function AdminMatchesPage() {
     };
     setSelectedMatch(prev => prev ? ({ ...prev, events: [...(prev.events || []), newGoalEvent] }) : null);
     setGoalPlayerId(''); setGoalTime('');
-    toast({ title: "Goal Added (Locally)", description: `${player.name} scored at ${goalTime}. Save changes to persist.`});
+    toast({ title: "Goal Added (Locally)", description: `${player.name} scored at ${goalTime}'. Save changes to persist.`});
   };
 
   const handleAddCard = () => {
@@ -223,12 +261,26 @@ export default function AdminMatchesPage() {
          return;
     }
     const player = playerTeam.players.find(p => p.id === cardPlayerId);
-    if (!player) return;
+    if (!player) {
+        toast({ variant: "destructive", title: "Error", description: "Player not found in team." });
+        return;
+    }
     
+    let finalCardType = cardType;
+    if (cardType === 'yellow') {
+      const existingYellowCards = selectedMatch.events?.filter(
+        event => event.type === 'card' && (event as CardEvent).cardType === 'yellow' && event.playerId === cardPlayerId
+      ).length || 0;
+      if (existingYellowCards >= 1) {
+        finalCardType = 'red'; // Automatically make it a red card
+        toast({ title: "Second Yellow", description: `${player.name} received a second yellow. Recorded as Red Card.`});
+      }
+    }
+
     const newCardEvent: CardEvent = {
       id: `event-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
       type: 'card',
-      cardType: cardType,
+      cardType: finalCardType,
       time: cardTime,
       playerId: player.id,
       playerName: player.name,
@@ -237,7 +289,45 @@ export default function AdminMatchesPage() {
     };
     setSelectedMatch(prev => prev ? ({ ...prev, events: [...(prev.events || []), newCardEvent] }) : null);
     setCardPlayerId(''); setCardTime(''); setCardType('yellow'); setCardDetails('');
-    toast({ title: "Card Added (Locally)", description: `${player.name} received a ${cardType} card at ${cardTime}. Save changes to persist.`});
+    if (finalCardType === 'yellow' && cardType === 'yellow') {
+        toast({ title: "Card Added (Locally)", description: `${player.name} received a ${finalCardType} card at ${cardTime}'. Save changes to persist.`});
+    }
+  };
+
+  const handleAddSubstitution = () => {
+    if (!selectedMatch || !subPlayerOutId || !subPlayerInId || !subTime) {
+      toast({ variant: "destructive", title: "Error", description: "Player Out, Player In, and Time are required." });
+      return;
+    }
+    if (subPlayerOutId === subPlayerInId) {
+      toast({ variant: "destructive", title: "Error", description: "Player In and Player Out cannot be the same." });
+      return;
+    }
+
+    const teamPlayerOut = getTeamForPlayer(subPlayerOutId, selectedMatch);
+    const playerOut = teamPlayerOut?.players.find(p => p.id === subPlayerOutId);
+
+    const teamPlayerIn = getTeamForPlayer(subPlayerInId, selectedMatch);
+    const playerIn = teamPlayerIn?.players.find(p => p.id === subPlayerInId);
+
+    if (!playerOut || !playerIn ) {
+      toast({ variant: "destructive", title: "Error", description: "Could not find player(s) for substitution." });
+      return;
+    }
+
+    const newSubEvent: SubstitutionEvent = {
+      id: `event-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+      type: 'substitution',
+      time: subTime,
+      playerOutId: playerOut.id,
+      playerOutName: playerOut.name,
+      playerInId: playerIn.id,
+      playerInName: playerIn.name,
+      teamId: teamPlayerOut?.id, // Assuming substitution is for playerOut's team primary
+    };
+    setSelectedMatch(prev => prev ? ({ ...prev, events: [...(prev.events || []), newSubEvent] }) : null);
+    setSubPlayerOutId(''); setSubPlayerInId(''); setSubTime('');
+    toast({ title: "Substitution Added (Locally)", description: `${playerOut.name} out, ${playerIn.name} in at ${subTime}'. Save changes.`});
   };
   
   const handleRemoveEvent = (eventId: string) => {
@@ -260,8 +350,6 @@ export default function AdminMatchesPage() {
       let standingsActuallyUpdated = false;
 
       for (const { teamId, matchScore, opponentMatchScore } of teamsToProcess) {
-        // Find all group_teams entries for this team. A team might be in multiple groups theoretically,
-        // but for tournament logic, it's typically one. This handles if it's >1 for some reason.
         const { data: groupTeamEntries, error: fetchError } = await supabase
           .from('group_teams')
           .select('*')
@@ -270,7 +358,7 @@ export default function AdminMatchesPage() {
         if (fetchError) {
           console.error(`Error fetching group standings for team ${teamId}: ${fetchError.message}`);
           toast({ variant: "destructive", title: "Standings Fetch Error", description: `Could not fetch standings for team ID ${teamId}. This team's standings were not updated.` });
-          continue; // Skip this team, try to update the other
+          continue; 
         }
         
         if (groupTeamEntries && groupTeamEntries.length > 0) {
@@ -285,12 +373,12 @@ export default function AdminMatchesPage() {
               lost: groupTeamEntry.lost || 0,
             };
 
-            if (matchScore > opponentMatchScore) { // Team won
+            if (matchScore > opponentMatchScore) { 
               updates.won = (updates.won || 0) + 1;
               updates.points = (updates.points || 0) + 3;
-            } else if (matchScore < opponentMatchScore) { // Team lost
+            } else if (matchScore < opponentMatchScore) { 
               updates.lost = (updates.lost || 0) + 1;
-            } else { // Draw
+            } else { 
               updates.drawn = (updates.drawn || 0) + 1;
               updates.points = (updates.points || 0) + 1;
             }
@@ -298,7 +386,7 @@ export default function AdminMatchesPage() {
             const { error: updateError } = await supabase
               .from('group_teams')
               .update(updates)
-              .eq('id', groupTeamEntry.id); // group_teams has its own 'id' primary key
+              .eq('id', groupTeamEntry.id); 
 
             if (updateError) {
               console.error(`Error updating group standings for team ${teamId} (group_team_id: ${groupTeamEntry.id}): ${updateError.message}`);
@@ -312,7 +400,6 @@ export default function AdminMatchesPage() {
       if (standingsActuallyUpdated) {
          toast({ title: "Group Standings Updated", description: "Relevant group standings have been recalculated based on the match result." });
       }
-      // If neither team was found in group_teams, no specific toast is needed here unless desired.
     } catch (error: any) {
       console.error("Unexpected error in updateGroupStandings logic:", error);
       toast({ variant: "destructive", title: "Standings Logic Error", description: error.message || "An unexpected error occurred while updating standings." });
@@ -324,16 +411,22 @@ export default function AdminMatchesPage() {
     if (!selectedMatch) return;
     setIsUpdatingMatch(true);
     
-    const updatedMatchPayload = {
-      score_a: data.status !== 'scheduled' ? (data.scoreA ?? selectedMatch.scoreA ?? 0) : null,
-      score_b: data.status !== 'scheduled' ? (data.scoreB ?? selectedMatch.scoreB ?? 0) : null,
+    const updatedMatchPayload: Partial<SupabaseMatch> = {
+      score_a: (data.status !== 'scheduled' && data.status !== 'halftime') ? (data.scoreA ?? selectedMatch.scoreA ?? 0) : null,
+      score_b: (data.status !== 'scheduled' && data.status !== 'halftime') ? (data.scoreB ?? selectedMatch.scoreB ?? 0) : null,
       status: data.status,
       events: selectedMatch.events || [],
-      team_a_id: selectedMatch.teamA.id, // Keep these in case they were editable for scheduled matches
-      team_b_id: selectedMatch.teamB.id,
-      date_time: new Date(selectedMatch.dateTime).toISOString(),
-      venue: selectedMatch.venue,
+      duration: data.duration,
+      player_of_the_match_id: data.playerOfTheMatchId || null,
     };
+     // Only update these if match is still scheduled, otherwise they are fixed
+    if (selectedMatch.status === 'scheduled') {
+        updatedMatchPayload.team_a_id = selectedMatch.teamA.id;
+        updatedMatchPayload.team_b_id = selectedMatch.teamB.id;
+        updatedMatchPayload.date_time = new Date(selectedMatch.dateTime).toISOString();
+        updatedMatchPayload.venue = selectedMatch.venue;
+    }
+
 
     const { data: updatedMatchFromDb, error } = await supabase
       .from('matches')
@@ -345,7 +438,7 @@ export default function AdminMatchesPage() {
     if (error) {
       toast({ variant: "destructive", title: "Failed to Update Match", description: error.message });
     } else if (updatedMatchFromDb) {
-      const locallyMappedUpdatedMatch = mapSupabaseMatchToLocal(updatedMatchFromDb as SupabaseMatch, teams);
+      const locallyMappedUpdatedMatch = mapSupabaseMatchToLocal(updatedMatchFromDb as SupabaseMatch, teams, allPlayers);
       setMatches(prevMatches =>
         prevMatches.map(m =>
           m.id === selectedMatch.id
@@ -356,12 +449,9 @@ export default function AdminMatchesPage() {
       
       toast({ title: "Match Updated", description: `Match details for ${selectedMatch.teamA.name} vs ${selectedMatch.teamB.name} updated.` });
       
-      // If match is completed, update group standings
       if (updatedMatchFromDb.status === 'completed') {
         const finalScoreA = updatedMatchFromDb.score_a ?? 0;
         const finalScoreB = updatedMatchFromDb.score_b ?? 0;
-        // Call updateGroupStandings AFTER match update is successful and state is set
-        // Make sure selectedMatch.teamA.id and selectedMatch.teamB.id are valid
         await updateGroupStandings(selectedMatch.teamA.id, selectedMatch.teamB.id, finalScoreA, finalScoreB);
       }
       
@@ -385,12 +475,21 @@ export default function AdminMatchesPage() {
     }
   };
   
-  const availablePlayersForEvents = selectedMatch ? 
+  const playersForEventsAndPOTM = selectedMatch ? 
     [
-      ...(selectedMatch.teamA.players || []).map(p => ({...p, teamName: selectedMatch.teamA.name, teamId: selectedMatch.teamA.id})),
-      ...(selectedMatch.teamB.players || []).map(p => ({...p, teamName: selectedMatch.teamB.name, teamId: selectedMatch.teamB.id}))
+      ...(teams.find(t => t.id === selectedMatch.teamA.id)?.players || []),
+      ...(teams.find(t => t.id === selectedMatch.teamB.id)?.players || [])
     ].sort((a,b) => a.name.localeCompare(b.name))
     : [];
+  
+  const playersInLineupA = selectedMatch?.lineupA?.map(p => p.id) || [];
+  const playersInLineupB = selectedMatch?.lineupB?.map(p => p.id) || [];
+  const playersOnField = new Set([...playersInLineupA, ...playersInLineupB]);
+
+  const availableSubstitutesA = selectedMatch ? teams.find(t => t.id === selectedMatch.teamA.id)?.players.filter(p => !playersOnField.has(p.id)) || [] : [];
+  const availableSubstitutesB = selectedMatch ? teams.find(t => t.id === selectedMatch.teamB.id)?.players.filter(p => !playersOnField.has(p.id)) || [] : [];
+  const allAvailableSubstitutes = [...availableSubstitutesA, ...availableSubstitutesB].sort((a,b) => a.name.localeCompare(b.name));
+
   
   return (
     <div className="space-y-8">
@@ -399,7 +498,7 @@ export default function AdminMatchesPage() {
           <CalendarClock className="mr-3 h-8 w-8" /> Manage Matches
         </h1>
         <p className="text-muted-foreground">
-          Set up match schedules, input live scores, lineups, and log important events. Data is stored in Supabase.
+          Set up match schedules, input live scores, lineups, and log important events.
         </p>
       </div>
 
@@ -479,6 +578,20 @@ export default function AdminMatchesPage() {
                   </FormItem>
                 )}
               />
+               <FormField
+                control={scheduleForm.control}
+                name="duration"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Match Duration (minutes)</FormLabel>
+                    <FormControl>
+                      <Input type="number" placeholder="e.g., 90" {...field} />
+                    </FormControl>
+                    <FormDescription>Default is 90 minutes if not specified.</FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
             </CardContent>
             <CardFooter>
               <Button type="submit" disabled={isSubmittingMatch || isLoading}>
@@ -492,7 +605,7 @@ export default function AdminMatchesPage() {
       <Card>
         <CardHeader>
           <CardTitle>Current Matches ({matches.length})</CardTitle>
-          <CardDescription>Overview of all scheduled, live, and completed matches from Supabase.</CardDescription>
+          <CardDescription>Overview of all scheduled, live, and completed matches.</CardDescription>
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -517,7 +630,7 @@ export default function AdminMatchesPage() {
                 {matches.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={7} className="text-center h-24">
-                      No matches found in the database.
+                      No matches found.
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -529,7 +642,7 @@ export default function AdminMatchesPage() {
                       <TableCell>{match.venue}</TableCell>
                       <TableCell className="capitalize">{match.status}</TableCell>
                       <TableCell>
-                        {match.status !== 'scheduled' ? `${match.scoreA ?? '-'} : ${match.scoreB ?? '-'}` : 'N/A'}
+                        {(match.status === 'live' || match.status === 'completed' || match.status === 'halftime') ? `${match.scoreA ?? '-'} : ${match.scoreB ?? '-'}` : 'N/A'}
                       </TableCell>
                       <TableCell className="text-right space-x-1">
                         <Button variant="outline" size="sm" onClick={() => openEditModal(match)}>
@@ -574,13 +687,13 @@ export default function AdminMatchesPage() {
       </Card>
 
       <Dialog open={isEditModalOpen} onOpenChange={setIsEditModalOpen}>
-        <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-2xl max-h-[90vh]">
           <DialogHeader>
             <DialogTitle>Manage Match: {selectedMatch?.teamA.name} vs {selectedMatch?.teamB.name}</DialogTitle>
-            <CardDescription>Update scores, status, and log match events. Changes will be saved to Supabase.</CardDescription>
+            <CardDescription>Update scores, status, and log match events.</CardDescription>
           </DialogHeader>
           {selectedMatch && (
-            <>
+            <ScrollArea className="max-h-[calc(90vh-150px)] pr-6"> {/* pr-6 for scrollbar space */}
             <Form {...updateForm}>
               <form onSubmit={updateForm.handleSubmit(onUpdateMatchSubmit)} className="space-y-4 py-2">
                 {selectedMatch.status === 'scheduled' && (
@@ -671,6 +784,7 @@ export default function AdminMatchesPage() {
                         <SelectContent>
                           <SelectItem value="scheduled">Scheduled</SelectItem>
                           <SelectItem value="live">Live</SelectItem>
+                          <SelectItem value="halftime">Half Time</SelectItem>
                           <SelectItem value="completed">Completed</SelectItem>
                         </SelectContent>
                       </Select>
@@ -678,7 +792,7 @@ export default function AdminMatchesPage() {
                     </FormItem>
                   )}
                 />
-                {updateForm.watch('status') !== 'scheduled' && (
+                {(updateForm.watch('status') === 'live' || updateForm.watch('status') === 'completed' || updateForm.watch('status') === 'halftime') && (
                   <div className="grid grid-cols-2 gap-4">
                     <FormField
                       control={updateForm.control}
@@ -708,6 +822,44 @@ export default function AdminMatchesPage() {
                     />
                   </div>
                 )}
+                <FormField
+                  control={updateForm.control}
+                  name="duration"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Match Duration (minutes)</FormLabel>
+                      <FormControl>
+                        <Input type="number" placeholder="e.g., 90" {...field} value={field.value ?? ''} onChange={e => field.onChange(e.target.value === '' ? null : parseInt(e.target.value,10) || 0)} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                 {updateForm.watch('status') === 'completed' && (
+                    <FormField
+                    control={updateForm.control}
+                    name="playerOfTheMatchId"
+                    render={({ field }) => (
+                        <FormItem>
+                        <FormLabel>Player of the Match</FormLabel>
+                        <Select onValueChange={field.onChange} defaultValue={field.value ?? undefined}>
+                            <FormControl>
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Select player..." />
+                                </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                                <SelectItem value="NONE_SELECTED_POTM_VALUE">None</SelectItem>
+                                {playersForEventsAndPOTM.map(p => (
+                                    <SelectItem key={p.id} value={p.id}>{p.name} ({p.shirt_number}) - {selectedMatch.teamA.players.some(pl => pl.id === p.id) ? selectedMatch.teamA.name : selectedMatch.teamB.name}</SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                        <FormMessage />
+                        </FormItem>
+                    )}
+                    />
+                 )}
               </form>
             </Form>
             
@@ -717,13 +869,15 @@ export default function AdminMatchesPage() {
               <div className="space-y-2">
                 <h4 className="text-sm font-medium text-muted-foreground">Recorded Events ({selectedMatch.events?.length || 0}):</h4>
                 {selectedMatch.events && selectedMatch.events.length > 0 ? (
-                  <ul className="max-h-40 overflow-y-auto border rounded-md p-2 space-y-1">
-                    {selectedMatch.events.map(event => (
+                  <ScrollArea className="max-h-40 border rounded-md p-2">
+                    <ul className="space-y-1">
+                    {selectedMatch.events.sort((a, b) => parseInt(a.time) - parseInt(b.time) || (a.time.includes('+') ? 1 : -1) - (b.time.includes('+') ? 1 : -1)).map(event => (
                       <li key={event.id} className="text-xs flex justify-between items-center p-1 bg-muted/50 rounded">
                         <span>
-                          {event.time} - {event.type.toUpperCase()}: {event.playerName}
-                          {event.type === 'card' && ` (${(event as CardEvent).cardType})`}
+                          {event.time}' - {event.type.toUpperCase()}: {event.playerName}
+                          {event.type === 'card' && ` (${(event as CardEvent).cardType.toUpperCase()})`}
                           {event.type === 'card' && (event as CardEvent).details && ` - ${(event as CardEvent).details}`}
+                          {event.type === 'substitution' && ` (OUT: ${(event as SubstitutionEvent).playerOutName} / IN: ${(event as SubstitutionEvent).playerInName})`}
                         </span>
                         <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => handleRemoveEvent(event.id)}>
                           <Trash2 className="h-3 w-3 text-destructive"/>
@@ -731,30 +885,31 @@ export default function AdminMatchesPage() {
                       </li>
                     ))}
                   </ul>
+                  </ScrollArea>
                 ) : <p className="text-xs text-muted-foreground">No events recorded yet.</p>}
               </div>
 
               <div className="space-y-2 border p-3 rounded-md">
                  <h4 className="text-sm font-semibold flex items-center"><Goal className="h-4 w-4 mr-1 text-green-500"/>Add Goal Event</h4>
                  <Select onValueChange={setGoalPlayerId} value={goalPlayerId}>
-                    <SelectTrigger><SelectValue placeholder="Select Player" /></SelectTrigger>
+                    <SelectTrigger><SelectValue placeholder="Select Player for Goal" /></SelectTrigger>
                     <SelectContent>
-                        {availablePlayersForEvents.map(p => (
-                            <SelectItem key={p.id} value={p.id}>{p.name} ({p.teamName})</SelectItem>
+                        {playersForEventsAndPOTM.map(p => (
+                            <SelectItem key={p.id} value={p.id}>{p.name} ({p.shirt_number}) - {selectedMatch.teamA.players.some(pl => pl.id === p.id) ? selectedMatch.teamA.name : selectedMatch.teamB.name}</SelectItem>
                         ))}
                     </SelectContent>
                  </Select>
-                 <Input type="text" placeholder="Time (e.g., 45+2')" value={goalTime} onChange={e => setGoalTime(e.target.value)} />
-                 <Button type="button" size="sm" onClick={handleAddGoal} disabled={!goalPlayerId || !goalTime}>Add Goal to List</Button>
+                 <Input type="text" placeholder="Time (e.g., 45, 45+2)" value={goalTime} onChange={e => setGoalTime(e.target.value)} />
+                 <Button type="button" size="sm" onClick={handleAddGoal} disabled={!goalPlayerId || !goalTime}>Add Goal</Button>
               </div>
 
               <div className="space-y-2 border p-3 rounded-md">
                  <h4 className="text-sm font-semibold flex items-center"><CreditCardIcon className="h-4 w-4 mr-1 text-yellow-500"/>Add Card Event</h4>
                  <Select onValueChange={setCardPlayerId} value={cardPlayerId}>
-                    <SelectTrigger><SelectValue placeholder="Select Player" /></SelectTrigger>
+                    <SelectTrigger><SelectValue placeholder="Select Player for Card" /></SelectTrigger>
                     <SelectContent>
-                        {availablePlayersForEvents.map(p => (
-                             <SelectItem key={p.id} value={p.id}>{p.name} ({p.teamName})</SelectItem>
+                        {playersForEventsAndPOTM.map(p => (
+                             <SelectItem key={p.id} value={p.id}>{p.name} ({p.shirt_number}) - {selectedMatch.teamA.players.some(pl => pl.id === p.id) ? selectedMatch.teamA.name : selectedMatch.teamB.name}</SelectItem>
                         ))}
                     </SelectContent>
                  </Select>
@@ -765,9 +920,31 @@ export default function AdminMatchesPage() {
                         <SelectItem value="red">Red</SelectItem>
                     </SelectContent>
                  </Select>
-                 <Input type="text" placeholder="Time (e.g., 60')" value={cardTime} onChange={e => setCardTime(e.target.value)} />
-                 <Input type="text" placeholder="Details (optional)" value={cardDetails} onChange={e => setCardDetails(e.target.value)} />
-                 <Button type="button" size="sm" onClick={handleAddCard} disabled={!cardPlayerId || !cardTime}>Add Card to List</Button>
+                 <Input type="text" placeholder="Time (e.g., 60, 90+1)" value={cardTime} onChange={e => setCardTime(e.target.value)} />
+                 <Textarea placeholder="Details for card (optional)" value={cardDetails} onChange={e => setCardDetails(e.target.value)} className="min-h-[60px]" />
+                 <Button type="button" size="sm" onClick={handleAddCard} disabled={!cardPlayerId || !cardTime}>Add Card</Button>
+              </div>
+
+              <div className="space-y-2 border p-3 rounded-md">
+                 <h4 className="text-sm font-semibold flex items-center"><Users className="h-4 w-4 mr-1 text-blue-500"/>Add Substitution Event</h4>
+                 <Select onValueChange={setSubPlayerOutId} value={subPlayerOutId}>
+                    <SelectTrigger><SelectValue placeholder="Select Player Out" /></SelectTrigger>
+                    <SelectContent>
+                        {playersForEventsAndPOTM.filter(p => playersOnField.has(p.id)).map(p => ( // Only players currently on field
+                             <SelectItem key={p.id} value={p.id}>{p.name} ({p.shirt_number}) - {selectedMatch.teamA.players.some(pl => pl.id === p.id) ? selectedMatch.teamA.name : selectedMatch.teamB.name}</SelectItem>
+                        ))}
+                    </SelectContent>
+                 </Select>
+                 <Select onValueChange={setSubPlayerInId} value={subPlayerInId}>
+                    <SelectTrigger><SelectValue placeholder="Select Player In" /></SelectTrigger>
+                    <SelectContent>
+                        {allAvailableSubstitutes.map(p => ( // Players not on field
+                             <SelectItem key={p.id} value={p.id}>{p.name} ({p.shirt_number}) - {selectedMatch.teamA.players.some(pl => pl.id === p.id) ? selectedMatch.teamA.name : selectedMatch.teamB.name}</SelectItem>
+                        ))}
+                    </SelectContent>
+                 </Select>
+                 <Input type="text" placeholder="Time (e.g., 75)" value={subTime} onChange={e => setSubTime(e.target.value)} />
+                 <Button type="button" size="sm" onClick={handleAddSubstitution} disabled={!subPlayerOutId || !subPlayerInId || !subTime}>Add Substitution</Button>
               </div>
             </div>
             <DialogFooter className="mt-6 border-t pt-4">
@@ -779,16 +956,14 @@ export default function AdminMatchesPage() {
                     onClick={() => updateForm.handleSubmit(onUpdateMatchSubmit)()} 
                     disabled={isUpdatingMatch}
                 >
-                    {isUpdatingMatch ? <><Loader2 className="mr-2 h-4 w-4 animate-spin"/> Saving All Changes...</> : "Save All Changes"}
+                    {isUpdatingMatch ? <><Loader2 className="mr-2 h-4 w-4 animate-spin"/> Saving...</> : "Save All Changes"}
                 </Button>
             </DialogFooter>
-            </>
+            </ScrollArea>
           )}
         </DialogContent>
       </Dialog>
     </div>
   );
 }
-    
-
     

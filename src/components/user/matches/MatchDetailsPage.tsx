@@ -4,12 +4,12 @@
 import React, { useEffect, useState } from 'react';
 import Image from 'next/image';
 import type { Match } from '@/types';
-import { getMatchById } from '@/lib/data'; // Using the refactored Supabase data getter
+import { getMatchById } from '@/lib/data'; 
 import LineupDisplay from './LineupDisplay';
 import MatchEventsLog from './MatchEventsLog';
 import CountdownTimer from './CountdownTimer';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
-import { CalendarDays, MapPin, RadioTower, CheckCircle, Clock, ShieldQuestion, Loader2 } from 'lucide-react';
+import { CalendarDays, MapPin, RadioTower, CheckCircle, Clock, ShieldQuestion, Loader2, Hourglass, Award } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 
@@ -18,24 +18,28 @@ interface MatchDetailsPageProps {
 }
 
 const MatchDetailsPage: React.FC<MatchDetailsPageProps> = ({ matchId }) => {
-  const [match, setMatch] = useState<Match | null | undefined>(undefined); // undefined for loading, null for not found
+  const [match, setMatch] = useState<Match | null | undefined>(undefined); 
   const [showLineups, setShowLineups] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [clientNow, setClientNow] = useState<Date | null>(null);
 
   useEffect(() => {
+    setClientNow(new Date());
     const fetchMatchData = async () => {
       setIsLoading(true);
       const fetchedMatch = await getMatchById(matchId);
       setMatch(fetchedMatch);
 
-      if (fetchedMatch && fetchedMatch.status === 'scheduled') {
-        const lineupRevealTime = new Date(fetchedMatch.dateTime).getTime() - 10 * 60 * 1000; // 10 mins before
-        const now = new Date().getTime();
-        if (now >= lineupRevealTime) {
-          setShowLineups(true);
+      if (fetchedMatch) {
+        const matchDateTime = new Date(fetchedMatch.dateTime).getTime();
+        if (fetchedMatch.status === 'scheduled') {
+          const lineupRevealTime = matchDateTime - 10 * 60 * 1000; // 10 mins before
+          if (new Date().getTime() >= lineupRevealTime) {
+            setShowLineups(true);
+          }
+        } else {
+          setShowLineups(true); // Show lineups for live/completed/halftime matches
         }
-      } else if (fetchedMatch) {
-        setShowLineups(true); // Show lineups for live/completed matches
       }
       setIsLoading(false);
     };
@@ -65,12 +69,13 @@ const MatchDetailsPage: React.FC<MatchDetailsPageProps> = ({ matchId }) => {
     );
   }
 
-  const { teamA, teamB, dateTime, venue, status, scoreA, scoreB, events, lineupA, lineupB } = match;
+  const { teamA, teamB, dateTime, venue, status, scoreA, scoreB, events, lineupA, lineupB, duration, playerOfTheMatch } = match;
 
-  const formattedDate = new Date(dateTime).toLocaleDateString(undefined, {
+  const matchDateTimeObject = new Date(dateTime);
+  const formattedDate = matchDateTimeObject.toLocaleDateString(undefined, {
     year: 'numeric', month: 'long', day: 'numeric'
   });
-  const formattedTime = new Date(dateTime).toLocaleTimeString(undefined, {
+  const formattedTime = matchDateTimeObject.toLocaleTimeString(undefined, {
     hour: '2-digit', minute: '2-digit'
   });
 
@@ -80,6 +85,8 @@ const MatchDetailsPage: React.FC<MatchDetailsPageProps> = ({ matchId }) => {
         return { icon: <CalendarDays className="h-6 w-6 text-accent" />, text: 'Scheduled' };
       case 'live':
         return { icon: <RadioTower className="h-6 w-6 text-destructive animate-pulse" />, text: 'Live' };
+      case 'halftime':
+        return { icon: <Hourglass className="h-6 w-6 text-orange-500 animate-pulse" />, text: 'Half Time' };
       case 'completed':
         return { icon: <CheckCircle className="h-6 w-6 text-green-500" />, text: 'Completed' };
       default:
@@ -88,7 +95,7 @@ const MatchDetailsPage: React.FC<MatchDetailsPageProps> = ({ matchId }) => {
   };
   const statusInfo = getStatusInfo();
 
-  const isCountdownRelevant = status === 'scheduled' && new Date(dateTime) > new Date();
+  const isCountdownRelevant = status === 'scheduled' && clientNow && matchDateTimeObject > clientNow;
 
 
   return (
@@ -103,6 +110,7 @@ const MatchDetailsPage: React.FC<MatchDetailsPageProps> = ({ matchId }) => {
             <div className="text-sm text-muted-foreground text-center md:text-right">
               <div className="flex items-center justify-center md:justify-end"><MapPin className="h-4 w-4 mr-1" />{venue}</div>
               <div className="flex items-center justify-center md:justify-end"><Clock className="h-4 w-4 mr-1" />{formattedDate} at {formattedTime}</div>
+              {duration && <div className="flex items-center justify-center md:justify-end"><Hourglass className="h-4 w-4 mr-1" />{duration} mins</div>}
             </div>
           </div>
         </CardHeader>
@@ -113,7 +121,7 @@ const MatchDetailsPage: React.FC<MatchDetailsPageProps> = ({ matchId }) => {
               <span className="text-xl font-semibold font-headline">{teamA.name}</span>
             </div>
             <div className="text-center my-4 md:my-0">
-              {status === 'live' || status === 'completed' ? (
+              {status === 'live' || status === 'completed' || status === 'halftime' ? (
                 <div className="text-5xl font-bold">
                   <span>{scoreA ?? 0}</span> - <span>{scoreB ?? 0}</span>
                 </div>
@@ -122,7 +130,7 @@ const MatchDetailsPage: React.FC<MatchDetailsPageProps> = ({ matchId }) => {
               )}
               {isCountdownRelevant && !showLineups && (
                 <div className="mt-2">
-                  <CountdownTimer targetDate={new Date(dateTime)} onZero={() => setShowLineups(true)} />
+                  <CountdownTimer targetDate={matchDateTimeObject} onZero={() => setShowLineups(true)} />
                 </div>
               )}
             </div>
@@ -134,7 +142,22 @@ const MatchDetailsPage: React.FC<MatchDetailsPageProps> = ({ matchId }) => {
           
           {showLineups && <LineupDisplay teamA={teamA} lineupA={lineupA} teamB={teamB} lineupB={lineupB} />}
           
-          {(status === 'live' || status === 'completed') && <MatchEventsLog events={events} />}
+          {(status === 'live' || status === 'completed' || status === 'halftime') && <MatchEventsLog events={events} />}
+
+          {status === 'completed' && playerOfTheMatch && (
+            <Card className="mt-6 shadow-md">
+              <CardHeader>
+                <CardTitle className="flex items-center font-headline text-xl">
+                  <Award className="h-6 w-6 mr-2 text-amber-500" /> Player of the Match
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-lg">
+                  {playerOfTheMatch.name} (#{playerOfTheMatch.shirt_number}) - {playerOfTheMatch.team_id === teamA.id ? teamA.name : teamB.name}
+                </p>
+              </CardContent>
+            </Card>
+          )}
 
         </CardContent>
         <CardFooter className="bg-muted/30 p-6">
