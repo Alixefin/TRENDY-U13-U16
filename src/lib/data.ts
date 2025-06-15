@@ -1,143 +1,108 @@
 
-import type { Team, Match, Group, TournamentInfo, Player, GoalEvent, CardEvent } from '@/types';
+import type { Team, Match, Group, TournamentInfo, Player, GoalEvent, CardEvent, MatchEvent, SupabaseMatch, GroupTeam } from '@/types';
+import { supabase } from './supabaseClient';
 
-export const placeholderTeamLogo = (name: string) => `https://placehold.co/128x128/FFFFFF/50C878.png?text=${name.substring(0,2).toUpperCase()}&font=poppins`;
+export const placeholderTeamLogo = (name: string): string => {
+  const initials = name.length >= 2 ? name.substring(0, 2).toUpperCase() : name.substring(0,1).toUpperCase() + (name.length > 1 ? name.substring(1,1) : '');
+  return `https://placehold.co/128x128/FFFFFF/50C878.png?text=${initials}&font=poppins`;
+}
 
-const createPlayer = (id: string, name: string, shirtNumber: number, team_id: string): Player => ({ id, name, shirt_number: shirtNumber, team_id });
+// Helper function to map Supabase team data (potentially with players) to local Team type
+const mapSupabaseTeamToLocalUser = (supabaseTeam: any, players: Player[] = []): Team => {
+  return {
+    id: supabaseTeam.id,
+    name: supabaseTeam.name,
+    coachName: supabaseTeam.coach_name || 'N/A',
+    logoUrl: supabaseTeam.logo_url || placeholderTeamLogo(supabaseTeam.name),
+    players: players.map(p => ({
+        id: p.id,
+        name: p.name,
+        shirt_number: p.shirt_number, // Ensure this matches the type
+        team_id: p.team_id,
+        created_at: p.created_at
+    })),
+  };
+};
 
-// Mock teams for user-facing components - Admin panel fetches from Supabase.
-export const exampleTeamsForUserDisplay: Team[] = [
-  {
-    id: 'user-team1',
-    name: 'Green Lions (User)',
-    logoUrl: placeholderTeamLogo('GL'),
-    coachName: 'Coach Arthur',
-    players: [
-      createPlayer('user-p1', 'Leo Green', 10, 'user-team1'),
-      createPlayer('user-p2', 'Sam Stripes', 7, 'user-team1'),
-    ],
-  },
-  {
-    id: 'user-team2',
-    name: 'Blue Eagles (User)',
-    logoUrl: placeholderTeamLogo('BE'),
-    coachName: 'Coach Bella',
-    players: [
-      createPlayer('user-p6', 'Eva Blue', 10, 'user-team2'),
-    ],
-  },
-   {
-    id: 'user-team3',
-    name: 'Red Dragons (User)',
-    logoUrl: placeholderTeamLogo('RD'),
-    coachName: 'Coach Drake',
-    players: [createPlayer('user-p11', 'Ruby Fire', 9, 'user-team3')],
-  },
-  {
-    id: 'user-team4',
-    name: 'Yellow Hornets (User)',
-    logoUrl: placeholderTeamLogo('YH'),
-    coachName: 'Coach Stinger',
-    players: [createPlayer('user-p16', 'Buzz Gold', 10, 'user-team4')],
-  },
-];
+// Refactored to fetch a single match by ID from Supabase for user-facing page
+export const getMatchById = async (id: string): Promise<Match | null | undefined> => {
+  const { data: matchData, error } = await supabase
+    .from('matches')
+    .select(`
+      id,
+      date_time,
+      venue,
+      status,
+      score_a,
+      score_b,
+      events,
+      lineup_a_player_ids,
+      lineup_b_player_ids,
+      teamA:team_a_id (id, name, logo_url, coach_name, players (id, name, shirt_number, team_id, created_at)),
+      teamB:team_b_id (id, name, logo_url, coach_name, players (id, name, shirt_number, team_id, created_at))
+    `)
+    .eq('id', id)
+    .single();
+
+  if (error) {
+    console.error(`Error fetching match by ID (${id}):`, error.message);
+    if (error.code === 'PGRST116') return null; // PostgREST error for "JSON object requested, multiple (or no) rows returned"
+    return undefined; // Other errors
+  }
+  if (!matchData) return null;
+
+  // Type assertion for teamA and teamB based on the select query structure
+  const teamARaw = matchData.teamA as any;
+  const teamBRaw = matchData.teamB as any;
+
+  const teamA: Team = teamARaw ? 
+    mapSupabaseTeamToLocalUser(teamARaw, (teamARaw.players as Player[] || [])) : 
+    { id: 'unknownA', name: 'Unknown Team A', logoUrl: placeholderTeamLogo('?'), coachName: 'N/A', players: [] };
+
+  const teamB: Team = teamBRaw ? 
+    mapSupabaseTeamToLocalUser(teamBRaw, (teamBRaw.players as Player[] || [])) : 
+    { id: 'unknownB', name: 'Unknown Team B', logoUrl: placeholderTeamLogo('?'), coachName: 'N/A', players: [] };
+
+  // Determine lineups
+  let lineupA: Player[] = [];
+  if (matchData.lineup_a_player_ids && teamA.players.length > 0) {
+    const lineupIds = new Set(matchData.lineup_a_player_ids);
+    lineupA = teamA.players.filter(p => lineupIds.has(p.id));
+  } else if (teamA.players.length > 0) {
+    // Fallback lineup if specific IDs not provided or players not fetched properly
+    // lineupA = teamA.players.slice(0, 11);
+  }
+  
+  let lineupB: Player[] = [];
+  if (matchData.lineup_b_player_ids && teamB.players.length > 0) {
+     const lineupIds = new Set(matchData.lineup_b_player_ids);
+     lineupB = teamB.players.filter(p => lineupIds.has(p.id));
+  } else if (teamB.players.length > 0) {
+    // lineupB = teamB.players.slice(0, 11);
+  }
 
 
-const now = new Date();
+  return {
+    id: matchData.id,
+    teamA,
+    teamB,
+    dateTime: new Date(matchData.date_time),
+    venue: matchData.venue || 'N/A',
+    status: matchData.status as 'scheduled' | 'live' | 'completed',
+    scoreA: matchData.score_a ?? undefined,
+    scoreB: matchData.score_b ?? undefined,
+    events: (matchData.events as MatchEvent[] | null) || [],
+    lineupA,
+    lineupB,
+  };
+};
 
-// Mock matches for user-facing components. Admin panel fetches from Supabase.
-export const mockMatches: Match[] = [
-  {
-    id: 'match1-user',
-    teamA: exampleTeamsForUserDisplay[0],
-    teamB: exampleTeamsForUserDisplay[1],
-    dateTime: new Date(now.getTime() + 2 * 60 * 60 * 1000),
-    venue: 'Stadium Alpha (User)',
-    status: 'scheduled',
-    events: [],
-  },
-  {
-    id: 'match2-user',
-    teamA: exampleTeamsForUserDisplay[2],
-    teamB: exampleTeamsForUserDisplay[3],
-    dateTime: new Date(now.getTime() - 15 * 60 * 1000),
-    venue: 'Stadium Beta (User)',
-    status: 'live',
-    scoreA: 1,
-    scoreB: 0,
-    lineupA: exampleTeamsForUserDisplay[2].players.slice(0, 5),
-    lineupB: exampleTeamsForUserDisplay[3].players.slice(0, 5),
-    events: [
-      { id: 'e1-user', type: 'goal', time: "10'", playerName: 'Ruby Fire', playerId: 'user-p11', teamId: 'user-team3' } as GoalEvent,
-    ],
-  },
-  {
-    id: 'match3-user',
-    teamA: exampleTeamsForUserDisplay[0],
-    teamB: exampleTeamsForUserDisplay[2],
-    dateTime: new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000),
-    venue: 'Stadium Gamma (User)',
-    status: 'completed',
-    scoreA: 2,
-    scoreB: 1,
-    lineupA: exampleTeamsForUserDisplay[0].players.slice(0, 5),
-    lineupB: exampleTeamsForUserDisplay[2].players.slice(0, 5),
-    events: [
-      { id: 'e2-user', type: 'goal', time: "25'", playerName: 'Leo Green', playerId: 'user-p1', teamId: 'user-team1' } as GoalEvent,
-      { id: 'e3-user', type: 'goal', time: "55'", playerName: 'Ruby Fire', playerId: 'user-p11', teamId: 'user-team3' } as GoalEvent,
-      { id: 'e4-user', type: 'goal', time: "80'", playerName: 'Sam Stripes', playerId: 'user-p2', teamId: 'user-team1' } as GoalEvent,
-      { id: 'e5-user', type: 'card', time: "60'", playerName: 'Ken Flame (User)', playerId: 'user-p12placeholder', teamId: 'user-team3', cardType: 'yellow', details: 'Foul tackle' } as CardEvent,
-    ],
-  },
-];
 
 // Fallback Tournament Info for components not yet refactored or if Supabase fails.
-// Admin panel and key user pages fetch live data from Supabase.
 export const mockTournamentInfo: TournamentInfo = {
-  id: 1, // Default ID
-  name: "Trendy's U13/U16 Championship (Fallback)",
+  id: 1, 
+  name: "Tournament Tracker (Fallback)",
   logoUrl: placeholderTeamLogo('TT'),
-  about: "Welcome to the most exciting youth championship! Trendy's U13/U16 tournament brings together the best young talents to compete for glory. (This is fallback data).",
+  about: "Fallback tournament description. Configure in admin panel.",
   knockoutImageUrl: `https://placehold.co/800x500/F0FAF4/50C878.png?text=Knockout+Diagram&font=poppins`,
 };
-
-// Mock Groups for user-facing components. Admin panel will manage via Supabase eventually.
-export const mockGroups: Group[] = [
-  {
-    id: 'groupA-user',
-    name: 'Group A (User)',
-    teams: [
-      { team: exampleTeamsForUserDisplay[0], played: 1, won: 1, drawn: 0, lost: 0, goalsFor: 2, goalsAgainst: 1, goalDifference: 1, points: 3 },
-      { team: exampleTeamsForUserDisplay[1], played: 0, won: 0, drawn: 0, lost: 0, goalsFor: 0, goalsAgainst: 0, goalDifference: 0, points: 0 },
-    ],
-  },
-  {
-    id: 'groupB-user',
-    name: 'Group B (User)',
-    teams: [
-      { team: exampleTeamsForUserDisplay[2], played: 1, won: 0, drawn: 0, lost: 1, goalsFor: 1, goalsAgainst: 2, goalDifference: -1, points: 0, isLive: true, liveScore: '1-0 vs YH' },
-      { team: exampleTeamsForUserDisplay[3], played: 0, won: 0, drawn: 0, lost: 0, goalsFor: 0, goalsAgainst: 0, goalDifference: 0, points: 0, isLive: true, liveScore: '0-1 vs RD' },
-    ],
-  },
-];
-
-// This function is used by user-facing match details page. Keep it using mockMatches for now.
-export const getMatchById = (id: string): Match | undefined => {
-  const match = mockMatches.find(m => m.id === id); 
-  if (match) {
-    // Ensure players are attached if not explicitly part of mock match lineups
-    const teamAWithPlayers = exampleTeamsForUserDisplay.find(t => t.id === match.teamA.id) || match.teamA;
-    const teamBWithPlayers = exampleTeamsForUserDisplay.find(t => t.id === match.teamB.id) || match.teamB;
-    
-    return { 
-        ...match, 
-        teamA: {...teamAWithPlayers, players: teamAWithPlayers.players || []},
-        teamB: {...teamBWithPlayers, players: teamBWithPlayers.players || []},
-        events: match.events || [],
-        lineupA: match.lineupA || teamAWithPlayers.players?.slice(0,11) || [], // Fallback lineup
-        lineupB: match.lineupB || teamBWithPlayers.players?.slice(0,11) || [], // Fallback lineup
-    };
-  }
-  return undefined;
-};
-    

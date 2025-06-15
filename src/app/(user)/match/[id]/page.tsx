@@ -1,6 +1,9 @@
+
 import MatchDetailsPage from '@/components/user/matches/MatchDetailsPage';
-import { getMatchById, mockMatches } from '@/lib/data';
+import { getMatchById } from '@/lib/data'; // This will be refactored to fetch from Supabase
 import type { Metadata, ResolvingMetadata } from 'next';
+import { supabase } from '@/lib/supabaseClient';
+import type { Match } from '@/types';
 
 type Props = {
   params: { id: string };
@@ -11,7 +14,7 @@ export async function generateMetadata(
   parent: ResolvingMetadata
 ): Promise<Metadata> {
   const id = params.id;
-  const match = getMatchById(id); // In real app, fetch from DB
+  const match = await getMatchById(id); // Fetches from Supabase now
 
   if (!match) {
     return {
@@ -25,14 +28,24 @@ export async function generateMetadata(
   };
 }
 
-// For static generation, if desired:
 export async function generateStaticParams() {
-  return mockMatches.map((match) => ({
+  const { data: matches, error } = await supabase
+    .from('matches')
+    .select('id');
+
+  if (error || !matches) {
+    console.error("Error fetching match IDs for static params:", error?.message);
+    return [];
+  }
+  return matches.map((match) => ({
     id: match.id,
   }));
 }
 
-
+// MatchPage no longer needs to be async if MatchDetailsPage fetches its own data
+// or if data is passed directly. Here, MatchDetailsPage internally calls getMatchById
+// which is now async and fetches from Supabase.
 export default function MatchPage({ params }: { params: { id: string } }) {
+  // MatchDetailsPage will call the refactored getMatchById
   return <MatchDetailsPage matchId={params.id} />;
 }

@@ -1,14 +1,15 @@
+
 "use client";
 
 import React, { useEffect, useState } from 'react';
 import Image from 'next/image';
 import type { Match } from '@/types';
-import { getMatchById } from '@/lib/data'; // Using mock data getter
+import { getMatchById } from '@/lib/data'; // Using the refactored Supabase data getter
 import LineupDisplay from './LineupDisplay';
 import MatchEventsLog from './MatchEventsLog';
 import CountdownTimer from './CountdownTimer';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
-import { CalendarDays, MapPin, RadioTower, CheckCircle, Clock, ShieldQuestion } from 'lucide-react';
+import { CalendarDays, MapPin, RadioTower, CheckCircle, Clock, ShieldQuestion, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 
@@ -19,25 +20,36 @@ interface MatchDetailsPageProps {
 const MatchDetailsPage: React.FC<MatchDetailsPageProps> = ({ matchId }) => {
   const [match, setMatch] = useState<Match | null | undefined>(undefined); // undefined for loading, null for not found
   const [showLineups, setShowLineups] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const fetchedMatch = getMatchById(matchId);
-    setMatch(fetchedMatch);
+    const fetchMatchData = async () => {
+      setIsLoading(true);
+      const fetchedMatch = await getMatchById(matchId);
+      setMatch(fetchedMatch);
 
-    if (fetchedMatch && fetchedMatch.status === 'scheduled') {
-      const lineupRevealTime = new Date(fetchedMatch.dateTime).getTime() - 10 * 60 * 1000; // 10 mins before
-      const now = new Date().getTime();
-      if (now >= lineupRevealTime) {
-        setShowLineups(true);
+      if (fetchedMatch && fetchedMatch.status === 'scheduled') {
+        const lineupRevealTime = new Date(fetchedMatch.dateTime).getTime() - 10 * 60 * 1000; // 10 mins before
+        const now = new Date().getTime();
+        if (now >= lineupRevealTime) {
+          setShowLineups(true);
+        }
+      } else if (fetchedMatch) {
+        setShowLineups(true); // Show lineups for live/completed matches
       }
-      // Countdown to lineup reveal could be implemented here if needed
-    } else if (fetchedMatch) {
-      setShowLineups(true); // Show lineups for live/completed matches
-    }
+      setIsLoading(false);
+    };
+
+    fetchMatchData();
   }, [matchId]);
 
-  if (match === undefined) {
-    return <div className="container mx-auto py-8 px-4 text-center">Loading match details...</div>;
+  if (isLoading || match === undefined) {
+    return (
+        <div className="container mx-auto py-8 px-4 text-center flex flex-col items-center justify-center min-h-[calc(100vh-10rem)]">
+            <Loader2 className="h-12 w-12 animate-spin text-primary mb-4" />
+            <p className="text-lg text-muted-foreground">Loading match details...</p>
+        </div>
+    );
   }
 
   if (match === null) {
@@ -71,12 +83,13 @@ const MatchDetailsPage: React.FC<MatchDetailsPageProps> = ({ matchId }) => {
       case 'completed':
         return { icon: <CheckCircle className="h-6 w-6 text-green-500" />, text: 'Completed' };
       default:
-        return { icon: null, text: '' };
+        return { icon: <ShieldQuestion className="h-6 w-6 text-muted-foreground"/>, text: 'Unknown' };
     }
   };
   const statusInfo = getStatusInfo();
 
-  const isCountdownRelevant = status === 'scheduled' && new Date() < new Date(dateTime);
+  const isCountdownRelevant = status === 'scheduled' && new Date(dateTime) > new Date();
+
 
   return (
     <div className="container mx-auto py-8 px-4">
@@ -109,7 +122,7 @@ const MatchDetailsPage: React.FC<MatchDetailsPageProps> = ({ matchId }) => {
               )}
               {isCountdownRelevant && !showLineups && (
                 <div className="mt-2">
-                  <CountdownTimer targetDate={dateTime} onZero={() => setShowLineups(true)} />
+                  <CountdownTimer targetDate={new Date(dateTime)} onZero={() => setShowLineups(true)} />
                 </div>
               )}
             </div>
@@ -119,7 +132,7 @@ const MatchDetailsPage: React.FC<MatchDetailsPageProps> = ({ matchId }) => {
             </div>
           </div>
           
-          {showLineups && <LineupDisplay teamA={teamA} lineupA={lineupA ?? teamA.players} teamB={teamB} lineupB={lineupB ?? teamB.players} />}
+          {showLineups && <LineupDisplay teamA={teamA} lineupA={lineupA} teamB={teamB} lineupB={lineupB} />}
           
           {(status === 'live' || status === 'completed') && <MatchEventsLog events={events} />}
 
