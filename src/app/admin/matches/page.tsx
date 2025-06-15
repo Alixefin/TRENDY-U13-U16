@@ -39,20 +39,6 @@ const updateMatchSchema = z.object({
 });
 type UpdateMatchFormValues = z.infer<typeof updateMatchSchema>;
 
-// Schemas for events are not directly used by RHF in this version, but good for reference
-// const goalEventSchema = z.object({
-//   playerId: z.string().min(1, "Select player"),
-//   time: z.string().min(1, "Enter time (e.g., 45+2')"),
-// });
-
-// const cardEventSchema = z.object({
-//   playerId: z.string().min(1, "Select player"),
-//   cardType: z.enum(['yellow', 'red']),
-//   time: z.string().min(1, "Enter time"),
-//   details: z.string().optional(),
-// });
-
-
 const mapSupabaseMatchToLocal = (sm: SupabaseMatch, teamsList: Team[]): Match => {
   const teamA = teamsList.find(t => t.id === sm.team_a_id);
   const teamB = teamsList.find(t => t.id === sm.team_b_id);
@@ -267,9 +253,6 @@ export default function AdminMatchesPage() {
       score_b: data.status !== 'scheduled' ? (data.scoreB ?? selectedMatch.scoreB ?? 0) : null,
       status: data.status,
       events: selectedMatch.events || [],
-      // For scheduled matches, explicitly keep team IDs, date, venue from the selectedMatch
-      // This is important if the edit form for scheduled matches was more restricted.
-      // However, the current modal allows changing these too.
       team_a_id: selectedMatch.teamA.id,
       team_b_id: selectedMatch.teamB.id,
       date_time: new Date(selectedMatch.dateTime).toISOString(),
@@ -461,11 +444,11 @@ export default function AdminMatchesPage() {
                         {match.status !== 'scheduled' ? `${match.scoreA ?? '-'} : ${match.scoreB ?? '-'}` : 'N/A'}
                       </TableCell>
                       <TableCell className="text-right space-x-1">
+                        <Button variant="outline" size="sm" onClick={() => openEditModal(match)}>
+                            <Edit className="h-4 w-4 mr-1" /> 
+                            {match.status === 'scheduled' ? 'Edit' : 'Manage'}
+                        </Button>
                         {match.status === 'scheduled' && (
-                            <>
-                            <Button variant="outline" size="sm" onClick={() => openEditModal(match)}>
-                                <Edit className="h-4 w-4 mr-1" /> Edit
-                            </Button>
                             <AlertDialog>
                                 <AlertDialogTrigger asChild>
                                 <Button variant="destructive" size="sm">
@@ -491,13 +474,7 @@ export default function AdminMatchesPage() {
                                 </AlertDialogFooter>
                                 </AlertDialogContent>
                             </AlertDialog>
-                            </>
                         )}
-                         {(match.status === 'live' || match.status === 'completed') && (
-                            <Button variant="outline" size="sm" onClick={() => openEditModal(match)}>
-                                <Edit className="h-4 w-4 mr-1" /> Manage
-                            </Button>
-                         )}
                       </TableCell>
                     </TableRow>
                   ))
@@ -518,12 +495,11 @@ export default function AdminMatchesPage() {
             <>
             <Form {...updateForm}>
               <form onSubmit={updateForm.handleSubmit(onUpdateMatchSubmit)} className="space-y-4 py-2">
-                {/* Allow editing teamA, teamB, dateTime, venue only if match is scheduled */}
                 {selectedMatch.status === 'scheduled' && (
                     <>
                         <FormField
-                            control={scheduleForm.control} // Note: This might ideally be a separate form or handled differently
-                            name="teamAId" // This field isn't in updateForm, needs to be handled
+                            control={scheduleForm.control} 
+                            name="teamAId" 
                             render={({ field }) => (
                                 <FormItem>
                                 <FormLabel>Team A (Scheduled)</FormLabel>
@@ -725,7 +701,6 @@ export default function AdminMatchesPage() {
     </div>
   );
 }
-
     
 
     
