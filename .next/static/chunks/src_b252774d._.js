@@ -1586,7 +1586,6 @@ function AdminMatchesPage() {
             duration: match.duration ?? undefined,
             playerOfTheMatchId: match.playerOfTheMatchId ?? undefined
         });
-        // Reset event form fields
         setGoalPlayerId('');
         setGoalTime('');
         setCardPlayerId('');
@@ -1599,10 +1598,8 @@ function AdminMatchesPage() {
         setIsEditModalOpen(true);
     };
     const getTeamForPlayer = (playerId, match)=>{
-        // Check fully populated teams first if available (e.g., from selectedMatch, which should have them)
         if (match.teamA?.players?.some((p)=>p.id === playerId)) return match.teamA;
         if (match.teamB?.players?.some((p)=>p.id === playerId)) return match.teamB;
-        // Fallback to general teams list (less ideal as players might not be specific to this match's context)
         const teamAFromList = teams.find((t)=>t.id === match.teamA.id);
         if (teamAFromList?.players.some((p)=>p.id === playerId)) return teamAFromList;
         const teamBFromList = teams.find((t)=>t.id === match.teamB.id);
@@ -1689,7 +1686,7 @@ function AdminMatchesPage() {
         if (cardType === 'yellow') {
             const existingYellowCards = selectedMatch.events?.filter((event)=>event.type === 'card' && event.cardType === 'yellow' && event.playerId === cardPlayerId).length || 0;
             if (existingYellowCards >= 1) {
-                finalCardType = 'red'; // Automatically make it a red card
+                finalCardType = 'red';
                 toast({
                     title: "Second Yellow",
                     description: `${player.name} received a second yellow. Recorded as Red Card.`
@@ -1788,75 +1785,126 @@ function AdminMatchesPage() {
             description: "Save changes to persist."
         });
     };
-    const updateGroupStandings = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["useCallback"])({
-        "AdminMatchesPage.useCallback[updateGroupStandings]": async (teamAId, teamBId, finalScoreA, finalScoreB)=>{
+    const getOutcomeDelta = (score, opponentScore, increment)=>{
+        let dWon = 0, dDrawn = 0, dLost = 0, dPoints = 0;
+        if (score > opponentScore) {
+            dWon = increment;
+            dPoints = 3 * increment;
+        } else if (score < opponentScore) {
+            dLost = increment;
+        } else {
+            dDrawn = increment;
+            dPoints = 1 * increment;
+        }
+        return {
+            dWon,
+            dDrawn,
+            dLost,
+            dPoints
+        };
+    };
+    const syncGroupStandingsForMatch = (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["useCallback"])({
+        "AdminMatchesPage.useCallback[syncGroupStandingsForMatch]": async (teamAId, teamBId, newScoreA, newScoreB, newStatus, oldMatchDetails)=>{
             try {
+                let standingsActuallyUpdated = false;
                 const teamsToProcess = [
                     {
                         teamId: teamAId,
-                        matchScore: finalScoreA,
-                        opponentMatchScore: finalScoreB
+                        currentScore: newScoreA,
+                        opponentScore: newScoreB,
+                        oldScore: oldMatchDetails.scoreA,
+                        oldOpponentScore: oldMatchDetails.scoreB
                     },
                     {
                         teamId: teamBId,
-                        matchScore: finalScoreB,
-                        opponentMatchScore: finalScoreA
+                        currentScore: newScoreB,
+                        opponentScore: newScoreA,
+                        oldScore: oldMatchDetails.scoreB,
+                        oldOpponentScore: oldMatchDetails.scoreA
                     }
                 ];
-                let standingsActuallyUpdated = false;
-                for (const { teamId, matchScore, opponentMatchScore } of teamsToProcess){
+                for (const { teamId, currentScore, opponentScore, oldScore, oldOpponentScore } of teamsToProcess){
                     const { data: groupTeamEntries, error: fetchError } = await __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$supabaseClient$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["supabase"].from('group_teams').select('*').eq('team_id', teamId);
                     if (fetchError) {
-                        console.error(`Error fetching group standings for team ${teamId}: ${fetchError.message}`);
-                        toast({
-                            variant: "destructive",
-                            title: "Standings Fetch Error",
-                            description: `Could not fetch standings for team ID ${teamId}. This team's standings were not updated.`
-                        });
+                        console.error(`Standings Sync: Error fetching group standings for team ${teamId}: ${fetchError.message}`);
                         continue;
                     }
                     if (groupTeamEntries && groupTeamEntries.length > 0) {
                         for (const groupTeamEntry of groupTeamEntries){
                             const updates = {
-                                played: (groupTeamEntry.played || 0) + 1,
-                                goals_for: (groupTeamEntry.goals_for || 0) + matchScore,
-                                goals_against: (groupTeamEntry.goals_against || 0) + opponentMatchScore,
-                                points: groupTeamEntry.points || 0,
+                                played: groupTeamEntry.played || 0,
+                                goals_for: groupTeamEntry.goals_for || 0,
+                                goals_against: groupTeamEntry.goals_against || 0,
                                 won: groupTeamEntry.won || 0,
                                 drawn: groupTeamEntry.drawn || 0,
-                                lost: groupTeamEntry.lost || 0
+                                lost: groupTeamEntry.lost || 0,
+                                points: groupTeamEntry.points || 0
                             };
-                            if (matchScore > opponentMatchScore) {
-                                updates.won = (updates.won || 0) + 1;
-                                updates.points = (updates.points || 0) + 3;
-                            } else if (matchScore < opponentMatchScore) {
-                                updates.lost = (updates.lost || 0) + 1;
-                            } else {
-                                updates.drawn = (updates.drawn || 0) + 1;
-                                updates.points = (updates.points || 0) + 1;
+                            let needsDbUpdate = false;
+                            // If the match was previously completed, reverse its impact
+                            if (oldMatchDetails.status === 'completed') {
+                                needsDbUpdate = true;
+                                updates.played -= 1;
+                                updates.goals_for -= oldScore ?? 0;
+                                updates.goals_against -= oldOpponentScore ?? 0;
+                                const oldOutcome = getOutcomeDelta(oldScore ?? 0, oldOpponentScore ?? 0, -1);
+                                updates.won += oldOutcome.dWon;
+                                updates.drawn += oldOutcome.dDrawn;
+                                updates.lost += oldOutcome.dLost;
+                                updates.points += oldOutcome.dPoints;
                             }
-                            const { error: updateError } = await __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$supabaseClient$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["supabase"].from('group_teams').update(updates).eq('id', groupTeamEntry.id);
-                            if (updateError) {
-                                console.error(`Error updating group standings for team ${teamId} (group_team_id: ${groupTeamEntry.id}): ${updateError.message}`);
-                                toast({
-                                    variant: "destructive",
-                                    title: "Standings Update Error",
-                                    description: `Failed to update standings for team ID ${teamId}.`
-                                });
-                            } else {
-                                standingsActuallyUpdated = true;
+                            // If the match is now completed, apply its new impact
+                            if (newStatus === 'completed') {
+                                needsDbUpdate = true;
+                                updates.played += 1;
+                                updates.goals_for += currentScore;
+                                updates.goals_against += opponentScore;
+                                const newOutcome = getOutcomeDelta(currentScore, opponentScore, 1);
+                                updates.won += newOutcome.dWon;
+                                updates.drawn += newOutcome.dDrawn;
+                                updates.lost += newOutcome.dLost;
+                                updates.points += newOutcome.dPoints;
+                            }
+                            if (needsDbUpdate) {
+                                // Ensure stats don't go negative
+                                updates.played = Math.max(0, updates.played);
+                                updates.won = Math.max(0, updates.won);
+                                updates.drawn = Math.max(0, updates.drawn);
+                                updates.lost = Math.max(0, updates.lost);
+                                updates.points = Math.max(0, updates.points);
+                                updates.goals_for = Math.max(0, updates.goals_for);
+                                updates.goals_against = Math.max(0, updates.goals_against);
+                                const { error: updateError } = await __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$supabaseClient$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["supabase"].from('group_teams').update({
+                                    played: updates.played,
+                                    won: updates.won,
+                                    drawn: updates.drawn,
+                                    lost: updates.lost,
+                                    goals_for: updates.goals_for,
+                                    goals_against: updates.goals_against,
+                                    points: updates.points
+                                }).eq('id', groupTeamEntry.id);
+                                if (updateError) {
+                                    console.error(`Standings Sync: Error updating group standings for team ${teamId} (entry ${groupTeamEntry.id}): ${updateError.message}`);
+                                    toast({
+                                        variant: "destructive",
+                                        title: "Standings Update Error",
+                                        description: `Failed to update standings for team ID ${teamId}.`
+                                    });
+                                } else {
+                                    standingsActuallyUpdated = true;
+                                }
                             }
                         }
                     }
                 }
                 if (standingsActuallyUpdated) {
                     toast({
-                        title: "Group Standings Updated",
-                        description: "Relevant group standings have been recalculated based on the match result."
+                        title: "Group Standings Synchronized",
+                        description: "Relevant group standings have been updated."
                     });
                 }
             } catch (error) {
-                console.error("Unexpected error in updateGroupStandings logic:", error);
+                console.error("Standings Sync: Unexpected error:", error);
                 toast({
                     variant: "destructive",
                     title: "Standings Logic Error",
@@ -1864,21 +1912,26 @@ function AdminMatchesPage() {
                 });
             }
         }
-    }["AdminMatchesPage.useCallback[updateGroupStandings]"], [
-        toast
+    }["AdminMatchesPage.useCallback[syncGroupStandingsForMatch]"], [
+        toast,
+        __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$lib$2f$supabaseClient$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["supabase"]
     ]);
     const onUpdateMatchSubmit = async (data)=>{
         if (!selectedMatch) return;
         setIsUpdatingMatch(true);
+        const oldMatchDetails = {
+            scoreA: selectedMatch.scoreA,
+            scoreB: selectedMatch.scoreB,
+            status: selectedMatch.status
+        };
         const updatedMatchPayload = {
             score_a: data.status !== 'scheduled' && data.status !== 'halftime' ? data.scoreA ?? selectedMatch.scoreA ?? 0 : null,
             score_b: data.status !== 'scheduled' && data.status !== 'halftime' ? data.scoreB ?? selectedMatch.scoreB ?? 0 : null,
             status: data.status,
             events: selectedMatch.events || [],
             duration: data.duration,
-            player_of_the_match_id: data.playerOfTheMatchId || null
+            player_of_the_match_id: data.playerOfTheMatchId === "NONE_SELECTED_POTM_VALUE" ? null : data.playerOfTheMatchId || null
         };
-        // Only update these if match is still scheduled, otherwise they are fixed
         if (selectedMatch.status === 'scheduled') {
             updatedMatchPayload.team_a_id = selectedMatch.teamA.id;
             updatedMatchPayload.team_b_id = selectedMatch.teamB.id;
@@ -1899,11 +1952,7 @@ function AdminMatchesPage() {
                 title: "Match Updated",
                 description: `Match details for ${selectedMatch.teamA.name} vs ${selectedMatch.teamB.name} updated.`
             });
-            if (updatedMatchFromDb.status === 'completed') {
-                const finalScoreA = updatedMatchFromDb.score_a ?? 0;
-                const finalScoreB = updatedMatchFromDb.score_b ?? 0;
-                await updateGroupStandings(selectedMatch.teamA.id, selectedMatch.teamB.id, finalScoreA, finalScoreB);
-            }
+            await syncGroupStandingsForMatch(selectedMatch.teamA.id, selectedMatch.teamB.id, updatedMatchFromDb.score_a ?? 0, updatedMatchFromDb.score_b ?? 0, updatedMatchFromDb.status, oldMatchDetails);
             setIsEditModalOpen(false);
             setSelectedMatch(null);
         }
@@ -1953,14 +2002,14 @@ function AdminMatchesPage() {
                                 className: "mr-3 h-8 w-8"
                             }, void 0, false, {
                                 fileName: "[project]/src/app/admin/matches/page.tsx",
-                                lineNumber: 498,
+                                lineNumber: 513,
                                 columnNumber: 11
                             }, this),
                             " Manage Matches"
                         ]
                     }, void 0, true, {
                         fileName: "[project]/src/app/admin/matches/page.tsx",
-                        lineNumber: 497,
+                        lineNumber: 512,
                         columnNumber: 9
                     }, this),
                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
@@ -1968,13 +2017,13 @@ function AdminMatchesPage() {
                         children: "Set up match schedules, input live scores, lineups, and log important events."
                     }, void 0, false, {
                         fileName: "[project]/src/app/admin/matches/page.tsx",
-                        lineNumber: 500,
+                        lineNumber: 515,
                         columnNumber: 9
                     }, this)
                 ]
             }, void 0, true, {
                 fileName: "[project]/src/app/admin/matches/page.tsx",
-                lineNumber: 496,
+                lineNumber: 511,
                 columnNumber: 7
             }, this),
             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$card$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["Card"], {
@@ -1988,27 +2037,27 @@ function AdminMatchesPage() {
                                         className: "mr-2 h-5 w-5"
                                     }, void 0, false, {
                                         fileName: "[project]/src/app/admin/matches/page.tsx",
-                                        lineNumber: 507,
+                                        lineNumber: 522,
                                         columnNumber: 52
                                     }, this),
                                     "Schedule New Match"
                                 ]
                             }, void 0, true, {
                                 fileName: "[project]/src/app/admin/matches/page.tsx",
-                                lineNumber: 507,
+                                lineNumber: 522,
                                 columnNumber: 11
                             }, this),
                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$card$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["CardDescription"], {
                                 children: "Define the teams, date, time, and venue for a new match."
                             }, void 0, false, {
                                 fileName: "[project]/src/app/admin/matches/page.tsx",
-                                lineNumber: 508,
+                                lineNumber: 523,
                                 columnNumber: 11
                             }, this)
                         ]
                     }, void 0, true, {
                         fileName: "[project]/src/app/admin/matches/page.tsx",
-                        lineNumber: 506,
+                        lineNumber: 521,
                         columnNumber: 9
                     }, this),
                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$form$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["Form"], {
@@ -2031,7 +2080,7 @@ function AdminMatchesPage() {
                                                                     children: "Team A"
                                                                 }, void 0, false, {
                                                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                    lineNumber: 519,
+                                                                    lineNumber: 534,
                                                                     columnNumber: 23
                                                                 }, void 0),
                                                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$select$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["Select"], {
@@ -2045,17 +2094,17 @@ function AdminMatchesPage() {
                                                                                     placeholder: isLoading ? "Loading teams..." : "Select Team A"
                                                                                 }, void 0, false, {
                                                                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                                    lineNumber: 522,
+                                                                                    lineNumber: 537,
                                                                                     columnNumber: 42
                                                                                 }, void 0)
                                                                             }, void 0, false, {
                                                                                 fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                                lineNumber: 522,
+                                                                                lineNumber: 537,
                                                                                 columnNumber: 27
                                                                             }, void 0)
                                                                         }, void 0, false, {
                                                                             fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                            lineNumber: 521,
+                                                                            lineNumber: 536,
                                                                             columnNumber: 25
                                                                         }, void 0),
                                                                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$select$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["SelectContent"], {
@@ -2064,34 +2113,34 @@ function AdminMatchesPage() {
                                                                                     children: team.name
                                                                                 }, team.id, false, {
                                                                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                                    lineNumber: 526,
+                                                                                    lineNumber: 541,
                                                                                     columnNumber: 29
                                                                                 }, void 0))
                                                                         }, void 0, false, {
                                                                             fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                            lineNumber: 524,
+                                                                            lineNumber: 539,
                                                                             columnNumber: 25
                                                                         }, void 0)
                                                                     ]
                                                                 }, void 0, true, {
                                                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                    lineNumber: 520,
+                                                                    lineNumber: 535,
                                                                     columnNumber: 23
                                                                 }, void 0),
                                                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$form$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["FormMessage"], {}, void 0, false, {
                                                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                    lineNumber: 530,
+                                                                    lineNumber: 545,
                                                                     columnNumber: 23
                                                                 }, void 0)
                                                             ]
                                                         }, void 0, true, {
                                                             fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                            lineNumber: 518,
+                                                            lineNumber: 533,
                                                             columnNumber: 21
                                                         }, void 0)
                                                 }, void 0, false, {
                                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                    lineNumber: 514,
+                                                    lineNumber: 529,
                                                     columnNumber: 17
                                                 }, this),
                                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$form$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["FormField"], {
@@ -2103,7 +2152,7 @@ function AdminMatchesPage() {
                                                                     children: "Team B"
                                                                 }, void 0, false, {
                                                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                    lineNumber: 539,
+                                                                    lineNumber: 554,
                                                                     columnNumber: 23
                                                                 }, void 0),
                                                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$select$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["Select"], {
@@ -2117,17 +2166,17 @@ function AdminMatchesPage() {
                                                                                     placeholder: isLoading ? "Loading teams..." : "Select Team B"
                                                                                 }, void 0, false, {
                                                                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                                    lineNumber: 542,
+                                                                                    lineNumber: 557,
                                                                                     columnNumber: 42
                                                                                 }, void 0)
                                                                             }, void 0, false, {
                                                                                 fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                                lineNumber: 542,
+                                                                                lineNumber: 557,
                                                                                 columnNumber: 27
                                                                             }, void 0)
                                                                         }, void 0, false, {
                                                                             fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                            lineNumber: 541,
+                                                                            lineNumber: 556,
                                                                             columnNumber: 25
                                                                         }, void 0),
                                                                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$select$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["SelectContent"], {
@@ -2136,40 +2185,40 @@ function AdminMatchesPage() {
                                                                                     children: team.name
                                                                                 }, team.id, false, {
                                                                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                                    lineNumber: 546,
+                                                                                    lineNumber: 561,
                                                                                     columnNumber: 29
                                                                                 }, void 0))
                                                                         }, void 0, false, {
                                                                             fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                            lineNumber: 544,
+                                                                            lineNumber: 559,
                                                                             columnNumber: 25
                                                                         }, void 0)
                                                                     ]
                                                                 }, void 0, true, {
                                                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                    lineNumber: 540,
+                                                                    lineNumber: 555,
                                                                     columnNumber: 23
                                                                 }, void 0),
                                                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$form$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["FormMessage"], {}, void 0, false, {
                                                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                    lineNumber: 550,
+                                                                    lineNumber: 565,
                                                                     columnNumber: 23
                                                                 }, void 0)
                                                             ]
                                                         }, void 0, true, {
                                                             fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                            lineNumber: 538,
+                                                            lineNumber: 553,
                                                             columnNumber: 21
                                                         }, void 0)
                                                 }, void 0, false, {
                                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                    lineNumber: 534,
+                                                    lineNumber: 549,
                                                     columnNumber: 17
                                                 }, this)
                                             ]
                                         }, void 0, true, {
                                             fileName: "[project]/src/app/admin/matches/page.tsx",
-                                            lineNumber: 513,
+                                            lineNumber: 528,
                                             columnNumber: 15
                                         }, this),
                                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$form$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["FormField"], {
@@ -2181,7 +2230,7 @@ function AdminMatchesPage() {
                                                             children: "Date & Time"
                                                         }, void 0, false, {
                                                             fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                            lineNumber: 560,
+                                                            lineNumber: 575,
                                                             columnNumber: 21
                                                         }, void 0),
                                                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$form$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["FormControl"], {
@@ -2190,28 +2239,28 @@ function AdminMatchesPage() {
                                                                 ...field
                                                             }, void 0, false, {
                                                                 fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                lineNumber: 562,
+                                                                lineNumber: 577,
                                                                 columnNumber: 23
                                                             }, void 0)
                                                         }, void 0, false, {
                                                             fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                            lineNumber: 561,
+                                                            lineNumber: 576,
                                                             columnNumber: 21
                                                         }, void 0),
                                                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$form$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["FormMessage"], {}, void 0, false, {
                                                             fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                            lineNumber: 564,
+                                                            lineNumber: 579,
                                                             columnNumber: 21
                                                         }, void 0)
                                                     ]
                                                 }, void 0, true, {
                                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                    lineNumber: 559,
+                                                    lineNumber: 574,
                                                     columnNumber: 19
                                                 }, void 0)
                                         }, void 0, false, {
                                             fileName: "[project]/src/app/admin/matches/page.tsx",
-                                            lineNumber: 555,
+                                            lineNumber: 570,
                                             columnNumber: 15
                                         }, this),
                                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$form$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["FormField"], {
@@ -2223,7 +2272,7 @@ function AdminMatchesPage() {
                                                             children: "Venue"
                                                         }, void 0, false, {
                                                             fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                            lineNumber: 573,
+                                                            lineNumber: 588,
                                                             columnNumber: 21
                                                         }, void 0),
                                                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$form$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["FormControl"], {
@@ -2232,28 +2281,28 @@ function AdminMatchesPage() {
                                                                 ...field
                                                             }, void 0, false, {
                                                                 fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                lineNumber: 575,
+                                                                lineNumber: 590,
                                                                 columnNumber: 23
                                                             }, void 0)
                                                         }, void 0, false, {
                                                             fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                            lineNumber: 574,
+                                                            lineNumber: 589,
                                                             columnNumber: 21
                                                         }, void 0),
                                                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$form$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["FormMessage"], {}, void 0, false, {
                                                             fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                            lineNumber: 577,
+                                                            lineNumber: 592,
                                                             columnNumber: 21
                                                         }, void 0)
                                                     ]
                                                 }, void 0, true, {
                                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                    lineNumber: 572,
+                                                    lineNumber: 587,
                                                     columnNumber: 19
                                                 }, void 0)
                                         }, void 0, false, {
                                             fileName: "[project]/src/app/admin/matches/page.tsx",
-                                            lineNumber: 568,
+                                            lineNumber: 583,
                                             columnNumber: 15
                                         }, this),
                                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$form$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["FormField"], {
@@ -2265,7 +2314,7 @@ function AdminMatchesPage() {
                                                             children: "Match Duration (minutes)"
                                                         }, void 0, false, {
                                                             fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                            lineNumber: 586,
+                                                            lineNumber: 601,
                                                             columnNumber: 21
                                                         }, void 0),
                                                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$form$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["FormControl"], {
@@ -2275,41 +2324,41 @@ function AdminMatchesPage() {
                                                                 ...field
                                                             }, void 0, false, {
                                                                 fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                lineNumber: 588,
+                                                                lineNumber: 603,
                                                                 columnNumber: 23
                                                             }, void 0)
                                                         }, void 0, false, {
                                                             fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                            lineNumber: 587,
+                                                            lineNumber: 602,
                                                             columnNumber: 21
                                                         }, void 0),
                                                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$form$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["FormDescription"], {
                                                             children: "Default is 90 minutes if not specified."
                                                         }, void 0, false, {
                                                             fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                            lineNumber: 590,
+                                                            lineNumber: 605,
                                                             columnNumber: 21
                                                         }, void 0),
                                                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$form$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["FormMessage"], {}, void 0, false, {
                                                             fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                            lineNumber: 591,
+                                                            lineNumber: 606,
                                                             columnNumber: 21
                                                         }, void 0)
                                                     ]
                                                 }, void 0, true, {
                                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                    lineNumber: 585,
+                                                    lineNumber: 600,
                                                     columnNumber: 19
                                                 }, void 0)
                                         }, void 0, false, {
                                             fileName: "[project]/src/app/admin/matches/page.tsx",
-                                            lineNumber: 581,
+                                            lineNumber: 596,
                                             columnNumber: 16
                                         }, this)
                                     ]
                                 }, void 0, true, {
                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                    lineNumber: 512,
+                                    lineNumber: 527,
                                     columnNumber: 13
                                 }, this),
                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$card$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["CardFooter"], {
@@ -2322,7 +2371,7 @@ function AdminMatchesPage() {
                                                     className: "mr-2 h-4 w-4 animate-spin"
                                                 }, void 0, false, {
                                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                    lineNumber: 598,
+                                                    lineNumber: 613,
                                                     columnNumber: 40
                                                 }, this),
                                                 " Scheduling..."
@@ -2330,29 +2379,29 @@ function AdminMatchesPage() {
                                         }, void 0, true) : "Schedule Match"
                                     }, void 0, false, {
                                         fileName: "[project]/src/app/admin/matches/page.tsx",
-                                        lineNumber: 597,
+                                        lineNumber: 612,
                                         columnNumber: 15
                                     }, this)
                                 }, void 0, false, {
                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                    lineNumber: 596,
+                                    lineNumber: 611,
                                     columnNumber: 13
                                 }, this)
                             ]
                         }, void 0, true, {
                             fileName: "[project]/src/app/admin/matches/page.tsx",
-                            lineNumber: 511,
+                            lineNumber: 526,
                             columnNumber: 11
                         }, this)
                     }, void 0, false, {
                         fileName: "[project]/src/app/admin/matches/page.tsx",
-                        lineNumber: 510,
+                        lineNumber: 525,
                         columnNumber: 9
                     }, this)
                 ]
             }, void 0, true, {
                 fileName: "[project]/src/app/admin/matches/page.tsx",
-                lineNumber: 505,
+                lineNumber: 520,
                 columnNumber: 7
             }, this),
             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$card$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["Card"], {
@@ -2367,20 +2416,20 @@ function AdminMatchesPage() {
                                 ]
                             }, void 0, true, {
                                 fileName: "[project]/src/app/admin/matches/page.tsx",
-                                lineNumber: 607,
+                                lineNumber: 622,
                                 columnNumber: 11
                             }, this),
                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$card$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["CardDescription"], {
                                 children: "Overview of all scheduled, live, and completed matches."
                             }, void 0, false, {
                                 fileName: "[project]/src/app/admin/matches/page.tsx",
-                                lineNumber: 608,
+                                lineNumber: 623,
                                 columnNumber: 11
                             }, this)
                         ]
                     }, void 0, true, {
                         fileName: "[project]/src/app/admin/matches/page.tsx",
-                        lineNumber: 606,
+                        lineNumber: 621,
                         columnNumber: 9
                     }, this),
                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$card$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["CardContent"], {
@@ -2391,7 +2440,7 @@ function AdminMatchesPage() {
                                     className: "h-8 w-8 animate-spin text-primary"
                                 }, void 0, false, {
                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                    lineNumber: 613,
+                                    lineNumber: 628,
                                     columnNumber: 17
                                 }, this),
                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
@@ -2399,13 +2448,13 @@ function AdminMatchesPage() {
                                     children: "Loading matches..."
                                 }, void 0, false, {
                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                    lineNumber: 614,
+                                    lineNumber: 629,
                                     columnNumber: 17
                                 }, this)
                             ]
                         }, void 0, true, {
                             fileName: "[project]/src/app/admin/matches/page.tsx",
-                            lineNumber: 612,
+                            lineNumber: 627,
                             columnNumber: 14
                         }, this) : /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$table$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["Table"], {
                             children: [
@@ -2416,42 +2465,42 @@ function AdminMatchesPage() {
                                                 children: "Team A"
                                             }, void 0, false, {
                                                 fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                lineNumber: 620,
+                                                lineNumber: 635,
                                                 columnNumber: 19
                                             }, this),
                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$table$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["TableHead"], {
                                                 children: "Team B"
                                             }, void 0, false, {
                                                 fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                lineNumber: 621,
+                                                lineNumber: 636,
                                                 columnNumber: 19
                                             }, this),
                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$table$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["TableHead"], {
                                                 children: "Date & Time"
                                             }, void 0, false, {
                                                 fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                lineNumber: 622,
+                                                lineNumber: 637,
                                                 columnNumber: 19
                                             }, this),
                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$table$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["TableHead"], {
                                                 children: "Venue"
                                             }, void 0, false, {
                                                 fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                lineNumber: 623,
+                                                lineNumber: 638,
                                                 columnNumber: 19
                                             }, this),
                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$table$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["TableHead"], {
                                                 children: "Status"
                                             }, void 0, false, {
                                                 fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                lineNumber: 624,
+                                                lineNumber: 639,
                                                 columnNumber: 19
                                             }, this),
                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$table$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["TableHead"], {
                                                 children: "Score"
                                             }, void 0, false, {
                                                 fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                lineNumber: 625,
+                                                lineNumber: 640,
                                                 columnNumber: 19
                                             }, this),
                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$table$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["TableHead"], {
@@ -2459,18 +2508,18 @@ function AdminMatchesPage() {
                                                 children: "Actions"
                                             }, void 0, false, {
                                                 fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                lineNumber: 626,
+                                                lineNumber: 641,
                                                 columnNumber: 19
                                             }, this)
                                         ]
                                     }, void 0, true, {
                                         fileName: "[project]/src/app/admin/matches/page.tsx",
-                                        lineNumber: 619,
+                                        lineNumber: 634,
                                         columnNumber: 17
                                     }, this)
                                 }, void 0, false, {
                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                    lineNumber: 618,
+                                    lineNumber: 633,
                                     columnNumber: 15
                                 }, this),
                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$table$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["TableBody"], {
@@ -2481,12 +2530,12 @@ function AdminMatchesPage() {
                                             children: "No matches found."
                                         }, void 0, false, {
                                             fileName: "[project]/src/app/admin/matches/page.tsx",
-                                            lineNumber: 632,
+                                            lineNumber: 647,
                                             columnNumber: 21
                                         }, this)
                                     }, void 0, false, {
                                         fileName: "[project]/src/app/admin/matches/page.tsx",
-                                        lineNumber: 631,
+                                        lineNumber: 646,
                                         columnNumber: 19
                                     }, this) : matches.map((match)=>/*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$table$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["TableRow"], {
                                             children: [
@@ -2494,28 +2543,28 @@ function AdminMatchesPage() {
                                                     children: match.teamA.name
                                                 }, void 0, false, {
                                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                    lineNumber: 639,
+                                                    lineNumber: 654,
                                                     columnNumber: 23
                                                 }, this),
                                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$table$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["TableCell"], {
                                                     children: match.teamB.name
                                                 }, void 0, false, {
                                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                    lineNumber: 640,
+                                                    lineNumber: 655,
                                                     columnNumber: 23
                                                 }, this),
                                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$table$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["TableCell"], {
                                                     children: new Date(match.dateTime).toLocaleString()
                                                 }, void 0, false, {
                                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                    lineNumber: 641,
+                                                    lineNumber: 656,
                                                     columnNumber: 23
                                                 }, this),
                                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$table$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["TableCell"], {
                                                     children: match.venue
                                                 }, void 0, false, {
                                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                    lineNumber: 642,
+                                                    lineNumber: 657,
                                                     columnNumber: 23
                                                 }, this),
                                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$table$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["TableCell"], {
@@ -2523,14 +2572,14 @@ function AdminMatchesPage() {
                                                     children: match.status
                                                 }, void 0, false, {
                                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                    lineNumber: 643,
+                                                    lineNumber: 658,
                                                     columnNumber: 23
                                                 }, this),
                                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$table$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["TableCell"], {
                                                     children: match.status === 'live' || match.status === 'completed' || match.status === 'halftime' ? `${match.scoreA ?? '-'} : ${match.scoreB ?? '-'}` : 'N/A'
                                                 }, void 0, false, {
                                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                    lineNumber: 644,
+                                                    lineNumber: 659,
                                                     columnNumber: 23
                                                 }, this),
                                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$table$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["TableCell"], {
@@ -2545,14 +2594,14 @@ function AdminMatchesPage() {
                                                                     className: "h-4 w-4 mr-1"
                                                                 }, void 0, false, {
                                                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                    lineNumber: 649,
+                                                                    lineNumber: 664,
                                                                     columnNumber: 29
                                                                 }, this),
                                                                 match.status === 'scheduled' ? 'Edit' : 'Manage'
                                                             ]
                                                         }, void 0, true, {
                                                             fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                            lineNumber: 648,
+                                                            lineNumber: 663,
                                                             columnNumber: 25
                                                         }, this),
                                                         match.status === 'scheduled' && /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$alert$2d$dialog$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["AlertDialog"], {
@@ -2567,19 +2616,19 @@ function AdminMatchesPage() {
                                                                                 className: "h-4 w-4 mr-1"
                                                                             }, void 0, false, {
                                                                                 fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                                lineNumber: 656,
+                                                                                lineNumber: 671,
                                                                                 columnNumber: 37
                                                                             }, this),
                                                                             " Delete"
                                                                         ]
                                                                     }, void 0, true, {
                                                                         fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                        lineNumber: 655,
+                                                                        lineNumber: 670,
                                                                         columnNumber: 33
                                                                     }, this)
                                                                 }, void 0, false, {
                                                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                    lineNumber: 654,
+                                                                    lineNumber: 669,
                                                                     columnNumber: 33
                                                                 }, this),
                                                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$alert$2d$dialog$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["AlertDialogContent"], {
@@ -2590,7 +2639,7 @@ function AdminMatchesPage() {
                                                                                     children: "Are you sure you want to delete this match?"
                                                                                 }, void 0, false, {
                                                                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                                    lineNumber: 661,
+                                                                                    lineNumber: 676,
                                                                                     columnNumber: 37
                                                                                 }, this),
                                                                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$alert$2d$dialog$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["AlertDialogDescription"], {
@@ -2598,7 +2647,7 @@ function AdminMatchesPage() {
                                                                                         "This action cannot be undone. This will permanently delete the match:",
                                                                                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("br", {}, void 0, false, {
                                                                                             fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                                            lineNumber: 664,
+                                                                                            lineNumber: 679,
                                                                                             columnNumber: 37
                                                                                         }, this),
                                                                                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("strong", {
@@ -2611,20 +2660,20 @@ function AdminMatchesPage() {
                                                                                             ]
                                                                                         }, void 0, true, {
                                                                                             fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                                            lineNumber: 664,
+                                                                                            lineNumber: 679,
                                                                                             columnNumber: 43
                                                                                         }, this),
                                                                                         "."
                                                                                     ]
                                                                                 }, void 0, true, {
                                                                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                                    lineNumber: 662,
+                                                                                    lineNumber: 677,
                                                                                     columnNumber: 37
                                                                                 }, this)
                                                                             ]
                                                                         }, void 0, true, {
                                                                             fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                            lineNumber: 660,
+                                                                            lineNumber: 675,
                                                                             columnNumber: 33
                                                                         }, this),
                                                                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$alert$2d$dialog$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["AlertDialogFooter"], {
@@ -2633,7 +2682,7 @@ function AdminMatchesPage() {
                                                                                     children: "Cancel"
                                                                                 }, void 0, false, {
                                                                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                                    lineNumber: 668,
+                                                                                    lineNumber: 683,
                                                                                     columnNumber: 37
                                                                                 }, this),
                                                                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$alert$2d$dialog$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["AlertDialogAction"], {
@@ -2642,59 +2691,59 @@ function AdminMatchesPage() {
                                                                                     children: "Delete Match"
                                                                                 }, void 0, false, {
                                                                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                                    lineNumber: 669,
+                                                                                    lineNumber: 684,
                                                                                     columnNumber: 37
                                                                                 }, this)
                                                                             ]
                                                                         }, void 0, true, {
                                                                             fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                            lineNumber: 667,
+                                                                            lineNumber: 682,
                                                                             columnNumber: 33
                                                                         }, this)
                                                                     ]
                                                                 }, void 0, true, {
                                                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                    lineNumber: 659,
+                                                                    lineNumber: 674,
                                                                     columnNumber: 33
                                                                 }, this)
                                                             ]
                                                         }, void 0, true, {
                                                             fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                            lineNumber: 653,
+                                                            lineNumber: 668,
                                                             columnNumber: 29
                                                         }, this)
                                                     ]
                                                 }, void 0, true, {
                                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                    lineNumber: 647,
+                                                    lineNumber: 662,
                                                     columnNumber: 23
                                                 }, this)
                                             ]
                                         }, match.id, true, {
                                             fileName: "[project]/src/app/admin/matches/page.tsx",
-                                            lineNumber: 638,
+                                            lineNumber: 653,
                                             columnNumber: 21
                                         }, this))
                                 }, void 0, false, {
                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                    lineNumber: 629,
+                                    lineNumber: 644,
                                     columnNumber: 15
                                 }, this)
                             ]
                         }, void 0, true, {
                             fileName: "[project]/src/app/admin/matches/page.tsx",
-                            lineNumber: 617,
+                            lineNumber: 632,
                             columnNumber: 13
                         }, this)
                     }, void 0, false, {
                         fileName: "[project]/src/app/admin/matches/page.tsx",
-                        lineNumber: 610,
+                        lineNumber: 625,
                         columnNumber: 9
                     }, this)
                 ]
             }, void 0, true, {
                 fileName: "[project]/src/app/admin/matches/page.tsx",
-                lineNumber: 605,
+                lineNumber: 620,
                 columnNumber: 7
             }, this),
             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$dialog$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["Dialog"], {
@@ -2714,26 +2763,25 @@ function AdminMatchesPage() {
                                     ]
                                 }, void 0, true, {
                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                    lineNumber: 692,
+                                    lineNumber: 707,
                                     columnNumber: 13
                                 }, this),
                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$card$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["CardDescription"], {
                                     children: "Update scores, status, and log match events."
                                 }, void 0, false, {
                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                    lineNumber: 693,
+                                    lineNumber: 708,
                                     columnNumber: 13
                                 }, this)
                             ]
                         }, void 0, true, {
                             fileName: "[project]/src/app/admin/matches/page.tsx",
-                            lineNumber: 691,
+                            lineNumber: 706,
                             columnNumber: 11
                         }, this),
                         selectedMatch && /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$scroll$2d$area$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["ScrollArea"], {
                             className: "max-h-[calc(90vh-150px)] pr-6",
                             children: [
-                                " ",
                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$form$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["Form"], {
                                     ...updateForm,
                                     children: /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("form", {
@@ -2751,7 +2799,7 @@ function AdminMatchesPage() {
                                                                         children: "Team A (Scheduled)"
                                                                     }, void 0, false, {
                                                                         fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                        lineNumber: 706,
+                                                                        lineNumber: 721,
                                                                         columnNumber: 33
                                                                     }, void 0),
                                                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$select$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["Select"], {
@@ -2769,17 +2817,17 @@ function AdminMatchesPage() {
                                                                                 children: /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$select$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["SelectTrigger"], {
                                                                                     children: /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$select$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["SelectValue"], {}, void 0, false, {
                                                                                         fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                                        lineNumber: 716,
+                                                                                        lineNumber: 731,
                                                                                         columnNumber: 52
                                                                                     }, void 0)
                                                                                 }, void 0, false, {
                                                                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                                    lineNumber: 716,
+                                                                                    lineNumber: 731,
                                                                                     columnNumber: 37
                                                                                 }, void 0)
                                                                             }, void 0, false, {
                                                                                 fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                                lineNumber: 715,
+                                                                                lineNumber: 730,
                                                                                 columnNumber: 37
                                                                             }, void 0),
                                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$select$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["SelectContent"], {
@@ -2788,34 +2836,34 @@ function AdminMatchesPage() {
                                                                                         children: team.name
                                                                                     }, team.id, false, {
                                                                                         fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                                        lineNumber: 720,
+                                                                                        lineNumber: 735,
                                                                                         columnNumber: 41
                                                                                     }, void 0))
                                                                             }, void 0, false, {
                                                                                 fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                                lineNumber: 718,
+                                                                                lineNumber: 733,
                                                                                 columnNumber: 37
                                                                             }, void 0)
                                                                         ]
                                                                     }, void 0, true, {
                                                                         fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                        lineNumber: 707,
+                                                                        lineNumber: 722,
                                                                         columnNumber: 33
                                                                     }, void 0),
                                                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$form$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["FormMessage"], {}, void 0, false, {
                                                                         fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                        lineNumber: 724,
+                                                                        lineNumber: 739,
                                                                         columnNumber: 33
                                                                     }, void 0)
                                                                 ]
                                                             }, void 0, true, {
                                                                 fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                lineNumber: 705,
+                                                                lineNumber: 720,
                                                                 columnNumber: 33
                                                             }, void 0)
                                                     }, void 0, false, {
                                                         fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                        lineNumber: 701,
+                                                        lineNumber: 716,
                                                         columnNumber: 25
                                                     }, this),
                                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$form$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["FormField"], {
@@ -2827,7 +2875,7 @@ function AdminMatchesPage() {
                                                                         children: "Team B (Scheduled)"
                                                                     }, void 0, false, {
                                                                         fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                        lineNumber: 733,
+                                                                        lineNumber: 748,
                                                                         columnNumber: 33
                                                                     }, void 0),
                                                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$select$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["Select"], {
@@ -2845,17 +2893,17 @@ function AdminMatchesPage() {
                                                                                 children: /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$select$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["SelectTrigger"], {
                                                                                     children: /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$select$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["SelectValue"], {}, void 0, false, {
                                                                                         fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                                        lineNumber: 743,
+                                                                                        lineNumber: 758,
                                                                                         columnNumber: 52
                                                                                     }, void 0)
                                                                                 }, void 0, false, {
                                                                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                                    lineNumber: 743,
+                                                                                    lineNumber: 758,
                                                                                     columnNumber: 37
                                                                                 }, void 0)
                                                                             }, void 0, false, {
                                                                                 fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                                lineNumber: 742,
+                                                                                lineNumber: 757,
                                                                                 columnNumber: 37
                                                                             }, void 0),
                                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$select$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["SelectContent"], {
@@ -2865,34 +2913,34 @@ function AdminMatchesPage() {
                                                                                         children: team.name
                                                                                     }, team.id, false, {
                                                                                         fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                                        lineNumber: 747,
+                                                                                        lineNumber: 762,
                                                                                         columnNumber: 41
                                                                                     }, void 0))
                                                                             }, void 0, false, {
                                                                                 fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                                lineNumber: 745,
+                                                                                lineNumber: 760,
                                                                                 columnNumber: 37
                                                                             }, void 0)
                                                                         ]
                                                                     }, void 0, true, {
                                                                         fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                        lineNumber: 734,
+                                                                        lineNumber: 749,
                                                                         columnNumber: 34
                                                                     }, void 0),
                                                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$form$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["FormMessage"], {}, void 0, false, {
                                                                         fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                        lineNumber: 751,
+                                                                        lineNumber: 766,
                                                                         columnNumber: 33
                                                                     }, void 0)
                                                                 ]
                                                             }, void 0, true, {
                                                                 fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                lineNumber: 732,
+                                                                lineNumber: 747,
                                                                 columnNumber: 33
                                                             }, void 0)
                                                     }, void 0, false, {
                                                         fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                        lineNumber: 728,
+                                                        lineNumber: 743,
                                                         columnNumber: 26
                                                     }, this),
                                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$form$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["FormItem"], {
@@ -2901,7 +2949,7 @@ function AdminMatchesPage() {
                                                                 children: "Date & Time (Scheduled)"
                                                             }, void 0, false, {
                                                                 fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                lineNumber: 756,
+                                                                lineNumber: 771,
                                                                 columnNumber: 29
                                                             }, this),
                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$input$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["Input"], {
@@ -2913,13 +2961,13 @@ function AdminMatchesPage() {
                                                                         } : null)
                                                             }, void 0, false, {
                                                                 fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                lineNumber: 757,
+                                                                lineNumber: 772,
                                                                 columnNumber: 29
                                                             }, this)
                                                         ]
                                                     }, void 0, true, {
                                                         fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                        lineNumber: 755,
+                                                        lineNumber: 770,
                                                         columnNumber: 25
                                                     }, this),
                                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$form$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["FormItem"], {
@@ -2928,7 +2976,7 @@ function AdminMatchesPage() {
                                                                 children: "Venue (Scheduled)"
                                                             }, void 0, false, {
                                                                 fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                lineNumber: 764,
+                                                                lineNumber: 779,
                                                                 columnNumber: 29
                                                             }, this),
                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$input$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["Input"], {
@@ -2939,13 +2987,13 @@ function AdminMatchesPage() {
                                                                         } : null)
                                                             }, void 0, false, {
                                                                 fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                lineNumber: 765,
+                                                                lineNumber: 780,
                                                                 columnNumber: 29
                                                             }, this)
                                                         ]
                                                     }, void 0, true, {
                                                         fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                        lineNumber: 763,
+                                                        lineNumber: 778,
                                                         columnNumber: 25
                                                     }, this)
                                                 ]
@@ -2959,7 +3007,7 @@ function AdminMatchesPage() {
                                                                 children: "Status"
                                                             }, void 0, false, {
                                                                 fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                lineNumber: 777,
+                                                                lineNumber: 792,
                                                                 columnNumber: 23
                                                             }, void 0),
                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$select$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["Select"], {
@@ -2972,17 +3020,17 @@ function AdminMatchesPage() {
                                                                                 placeholder: "Select status"
                                                                             }, void 0, false, {
                                                                                 fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                                lineNumber: 781,
+                                                                                lineNumber: 796,
                                                                                 columnNumber: 29
                                                                             }, void 0)
                                                                         }, void 0, false, {
                                                                             fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                            lineNumber: 780,
+                                                                            lineNumber: 795,
                                                                             columnNumber: 27
                                                                         }, void 0)
                                                                     }, void 0, false, {
                                                                         fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                        lineNumber: 779,
+                                                                        lineNumber: 794,
                                                                         columnNumber: 25
                                                                     }, void 0),
                                                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$select$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["SelectContent"], {
@@ -2992,7 +3040,7 @@ function AdminMatchesPage() {
                                                                                 children: "Scheduled"
                                                                             }, void 0, false, {
                                                                                 fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                                lineNumber: 785,
+                                                                                lineNumber: 800,
                                                                                 columnNumber: 27
                                                                             }, void 0),
                                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$select$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["SelectItem"], {
@@ -3000,7 +3048,7 @@ function AdminMatchesPage() {
                                                                                 children: "Live"
                                                                             }, void 0, false, {
                                                                                 fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                                lineNumber: 786,
+                                                                                lineNumber: 801,
                                                                                 columnNumber: 27
                                                                             }, void 0),
                                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$select$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["SelectItem"], {
@@ -3008,7 +3056,7 @@ function AdminMatchesPage() {
                                                                                 children: "Half Time"
                                                                             }, void 0, false, {
                                                                                 fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                                lineNumber: 787,
+                                                                                lineNumber: 802,
                                                                                 columnNumber: 27
                                                                             }, void 0),
                                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$select$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["SelectItem"], {
@@ -3016,35 +3064,35 @@ function AdminMatchesPage() {
                                                                                 children: "Completed"
                                                                             }, void 0, false, {
                                                                                 fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                                lineNumber: 788,
+                                                                                lineNumber: 803,
                                                                                 columnNumber: 27
                                                                             }, void 0)
                                                                         ]
                                                                     }, void 0, true, {
                                                                         fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                        lineNumber: 784,
+                                                                        lineNumber: 799,
                                                                         columnNumber: 25
                                                                     }, void 0)
                                                                 ]
                                                             }, void 0, true, {
                                                                 fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                lineNumber: 778,
+                                                                lineNumber: 793,
                                                                 columnNumber: 23
                                                             }, void 0),
                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$form$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["FormMessage"], {}, void 0, false, {
                                                                 fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                lineNumber: 791,
+                                                                lineNumber: 806,
                                                                 columnNumber: 23
                                                             }, void 0)
                                                         ]
                                                     }, void 0, true, {
                                                         fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                        lineNumber: 776,
+                                                        lineNumber: 791,
                                                         columnNumber: 21
                                                     }, void 0)
                                             }, void 0, false, {
                                                 fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                lineNumber: 772,
+                                                lineNumber: 787,
                                                 columnNumber: 17
                                             }, this),
                                             (updateForm.watch('status') === 'live' || updateForm.watch('status') === 'completed' || updateForm.watch('status') === 'halftime') && /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -3062,7 +3110,7 @@ function AdminMatchesPage() {
                                                                         ]
                                                                     }, void 0, true, {
                                                                         fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                        lineNumber: 802,
+                                                                        lineNumber: 817,
                                                                         columnNumber: 27
                                                                     }, void 0),
                                                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$form$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["FormControl"], {
@@ -3072,28 +3120,28 @@ function AdminMatchesPage() {
                                                                             onChange: (e)=>field.onChange(parseInt(e.target.value, 10) || 0)
                                                                         }, void 0, false, {
                                                                             fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                            lineNumber: 804,
+                                                                            lineNumber: 819,
                                                                             columnNumber: 29
                                                                         }, void 0)
                                                                     }, void 0, false, {
                                                                         fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                        lineNumber: 803,
+                                                                        lineNumber: 818,
                                                                         columnNumber: 27
                                                                     }, void 0),
                                                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$form$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["FormMessage"], {}, void 0, false, {
                                                                         fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                        lineNumber: 806,
+                                                                        lineNumber: 821,
                                                                         columnNumber: 27
                                                                     }, void 0)
                                                                 ]
                                                             }, void 0, true, {
                                                                 fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                lineNumber: 801,
+                                                                lineNumber: 816,
                                                                 columnNumber: 25
                                                             }, void 0)
                                                     }, void 0, false, {
                                                         fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                        lineNumber: 797,
+                                                        lineNumber: 812,
                                                         columnNumber: 21
                                                     }, this),
                                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$form$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["FormField"], {
@@ -3108,7 +3156,7 @@ function AdminMatchesPage() {
                                                                         ]
                                                                     }, void 0, true, {
                                                                         fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                        lineNumber: 815,
+                                                                        lineNumber: 830,
                                                                         columnNumber: 27
                                                                     }, void 0),
                                                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$form$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["FormControl"], {
@@ -3118,34 +3166,34 @@ function AdminMatchesPage() {
                                                                             onChange: (e)=>field.onChange(parseInt(e.target.value, 10) || 0)
                                                                         }, void 0, false, {
                                                                             fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                            lineNumber: 817,
+                                                                            lineNumber: 832,
                                                                             columnNumber: 30
                                                                         }, void 0)
                                                                     }, void 0, false, {
                                                                         fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                        lineNumber: 816,
+                                                                        lineNumber: 831,
                                                                         columnNumber: 27
                                                                     }, void 0),
                                                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$form$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["FormMessage"], {}, void 0, false, {
                                                                         fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                        lineNumber: 819,
+                                                                        lineNumber: 834,
                                                                         columnNumber: 27
                                                                     }, void 0)
                                                                 ]
                                                             }, void 0, true, {
                                                                 fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                lineNumber: 814,
+                                                                lineNumber: 829,
                                                                 columnNumber: 25
                                                             }, void 0)
                                                     }, void 0, false, {
                                                         fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                        lineNumber: 810,
+                                                        lineNumber: 825,
                                                         columnNumber: 21
                                                     }, this)
                                                 ]
                                             }, void 0, true, {
                                                 fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                lineNumber: 796,
+                                                lineNumber: 811,
                                                 columnNumber: 19
                                             }, this),
                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$form$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["FormField"], {
@@ -3157,7 +3205,7 @@ function AdminMatchesPage() {
                                                                 children: "Match Duration (minutes)"
                                                             }, void 0, false, {
                                                                 fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                lineNumber: 830,
+                                                                lineNumber: 845,
                                                                 columnNumber: 23
                                                             }, void 0),
                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$form$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["FormControl"], {
@@ -3169,28 +3217,28 @@ function AdminMatchesPage() {
                                                                     onChange: (e)=>field.onChange(e.target.value === '' ? null : parseInt(e.target.value, 10) || 0)
                                                                 }, void 0, false, {
                                                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                    lineNumber: 832,
+                                                                    lineNumber: 847,
                                                                     columnNumber: 25
                                                                 }, void 0)
                                                             }, void 0, false, {
                                                                 fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                lineNumber: 831,
+                                                                lineNumber: 846,
                                                                 columnNumber: 23
                                                             }, void 0),
                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$form$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["FormMessage"], {}, void 0, false, {
                                                                 fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                lineNumber: 834,
+                                                                lineNumber: 849,
                                                                 columnNumber: 23
                                                             }, void 0)
                                                         ]
                                                     }, void 0, true, {
                                                         fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                        lineNumber: 829,
+                                                        lineNumber: 844,
                                                         columnNumber: 21
                                                     }, void 0)
                                             }, void 0, false, {
                                                 fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                lineNumber: 825,
+                                                lineNumber: 840,
                                                 columnNumber: 17
                                             }, this),
                                             updateForm.watch('status') === 'completed' && /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$form$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["FormField"], {
@@ -3202,7 +3250,7 @@ function AdminMatchesPage() {
                                                                 children: "Player of the Match"
                                                             }, void 0, false, {
                                                                 fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                lineNumber: 844,
+                                                                lineNumber: 859,
                                                                 columnNumber: 25
                                                             }, void 0),
                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$select$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["Select"], {
@@ -3215,17 +3263,17 @@ function AdminMatchesPage() {
                                                                                 placeholder: "Select player..."
                                                                             }, void 0, false, {
                                                                                 fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                                lineNumber: 848,
+                                                                                lineNumber: 863,
                                                                                 columnNumber: 37
                                                                             }, void 0)
                                                                         }, void 0, false, {
                                                                             fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                            lineNumber: 847,
+                                                                            lineNumber: 862,
                                                                             columnNumber: 33
                                                                         }, void 0)
                                                                     }, void 0, false, {
                                                                         fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                        lineNumber: 846,
+                                                                        lineNumber: 861,
                                                                         columnNumber: 29
                                                                     }, void 0),
                                                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$select$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["SelectContent"], {
@@ -3235,7 +3283,7 @@ function AdminMatchesPage() {
                                                                                 children: "None"
                                                                             }, void 0, false, {
                                                                                 fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                                lineNumber: 852,
+                                                                                lineNumber: 867,
                                                                                 columnNumber: 33
                                                                             }, void 0),
                                                                             playersForEventsAndPOTM.map((p)=>/*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$select$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["SelectItem"], {
@@ -3249,46 +3297,46 @@ function AdminMatchesPage() {
                                                                                     ]
                                                                                 }, p.id, true, {
                                                                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                                    lineNumber: 854,
+                                                                                    lineNumber: 869,
                                                                                     columnNumber: 37
                                                                                 }, void 0))
                                                                         ]
                                                                     }, void 0, true, {
                                                                         fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                        lineNumber: 851,
+                                                                        lineNumber: 866,
                                                                         columnNumber: 29
                                                                     }, void 0)
                                                                 ]
                                                             }, void 0, true, {
                                                                 fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                lineNumber: 845,
+                                                                lineNumber: 860,
                                                                 columnNumber: 25
                                                             }, void 0),
                                                             /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$form$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["FormMessage"], {}, void 0, false, {
                                                                 fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                lineNumber: 858,
+                                                                lineNumber: 873,
                                                                 columnNumber: 25
                                                             }, void 0)
                                                         ]
                                                     }, void 0, true, {
                                                         fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                        lineNumber: 843,
+                                                        lineNumber: 858,
                                                         columnNumber: 25
                                                     }, void 0)
                                             }, void 0, false, {
                                                 fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                lineNumber: 839,
+                                                lineNumber: 854,
                                                 columnNumber: 21
                                             }, this)
                                         ]
                                     }, void 0, true, {
                                         fileName: "[project]/src/app/admin/matches/page.tsx",
-                                        lineNumber: 698,
+                                        lineNumber: 713,
                                         columnNumber: 15
                                     }, this)
                                 }, void 0, false, {
                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                    lineNumber: 697,
+                                    lineNumber: 712,
                                     columnNumber: 13
                                 }, this),
                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -3299,7 +3347,7 @@ function AdminMatchesPage() {
                                             children: "Manage Match Events"
                                         }, void 0, false, {
                                             fileName: "[project]/src/app/admin/matches/page.tsx",
-                                            lineNumber: 867,
+                                            lineNumber: 882,
                                             columnNumber: 15
                                         }, this),
                                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -3314,7 +3362,7 @@ function AdminMatchesPage() {
                                                     ]
                                                 }, void 0, true, {
                                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                    lineNumber: 870,
+                                                    lineNumber: 885,
                                                     columnNumber: 17
                                                 }, this),
                                                 selectedMatch.events && selectedMatch.events.length > 0 ? /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$scroll$2d$area$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["ScrollArea"], {
@@ -3337,7 +3385,7 @@ function AdminMatchesPage() {
                                                                         ]
                                                                     }, void 0, true, {
                                                                         fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                        lineNumber: 876,
+                                                                        lineNumber: 891,
                                                                         columnNumber: 25
                                                                     }, this),
                                                                     /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$button$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["Button"], {
@@ -3349,41 +3397,41 @@ function AdminMatchesPage() {
                                                                             className: "h-3 w-3 text-destructive"
                                                                         }, void 0, false, {
                                                                             fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                            lineNumber: 883,
+                                                                            lineNumber: 898,
                                                                             columnNumber: 27
                                                                         }, this)
                                                                     }, void 0, false, {
                                                                         fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                        lineNumber: 882,
+                                                                        lineNumber: 897,
                                                                         columnNumber: 25
                                                                     }, this)
                                                                 ]
                                                             }, event.id, true, {
                                                                 fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                lineNumber: 875,
+                                                                lineNumber: 890,
                                                                 columnNumber: 23
                                                             }, this))
                                                     }, void 0, false, {
                                                         fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                        lineNumber: 873,
+                                                        lineNumber: 888,
                                                         columnNumber: 21
                                                     }, this)
                                                 }, void 0, false, {
                                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                    lineNumber: 872,
+                                                    lineNumber: 887,
                                                     columnNumber: 19
                                                 }, this) : /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("p", {
                                                     className: "text-xs text-muted-foreground",
                                                     children: "No events recorded yet."
                                                 }, void 0, false, {
                                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                    lineNumber: 889,
+                                                    lineNumber: 904,
                                                     columnNumber: 21
                                                 }, this)
                                             ]
                                         }, void 0, true, {
                                             fileName: "[project]/src/app/admin/matches/page.tsx",
-                                            lineNumber: 869,
+                                            lineNumber: 884,
                                             columnNumber: 15
                                         }, this),
                                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -3396,14 +3444,14 @@ function AdminMatchesPage() {
                                                             className: "h-4 w-4 mr-1 text-green-500"
                                                         }, void 0, false, {
                                                             fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                            lineNumber: 893,
+                                                            lineNumber: 908,
                                                             columnNumber: 74
                                                         }, this),
                                                         "Add Goal Event"
                                                     ]
                                                 }, void 0, true, {
                                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                    lineNumber: 893,
+                                                    lineNumber: 908,
                                                     columnNumber: 18
                                                 }, this),
                                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$select$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["Select"], {
@@ -3415,12 +3463,12 @@ function AdminMatchesPage() {
                                                                 placeholder: "Select Player for Goal"
                                                             }, void 0, false, {
                                                                 fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                lineNumber: 895,
+                                                                lineNumber: 910,
                                                                 columnNumber: 36
                                                             }, this)
                                                         }, void 0, false, {
                                                             fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                            lineNumber: 895,
+                                                            lineNumber: 910,
                                                             columnNumber: 21
                                                         }, this),
                                                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$select$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["SelectContent"], {
@@ -3435,18 +3483,18 @@ function AdminMatchesPage() {
                                                                     ]
                                                                 }, p.id, true, {
                                                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                    lineNumber: 898,
+                                                                    lineNumber: 913,
                                                                     columnNumber: 29
                                                                 }, this))
                                                         }, void 0, false, {
                                                             fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                            lineNumber: 896,
+                                                            lineNumber: 911,
                                                             columnNumber: 21
                                                         }, this)
                                                     ]
                                                 }, void 0, true, {
                                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                    lineNumber: 894,
+                                                    lineNumber: 909,
                                                     columnNumber: 18
                                                 }, this),
                                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$input$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["Input"], {
@@ -3456,7 +3504,7 @@ function AdminMatchesPage() {
                                                     onChange: (e)=>setGoalTime(e.target.value)
                                                 }, void 0, false, {
                                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                    lineNumber: 902,
+                                                    lineNumber: 917,
                                                     columnNumber: 18
                                                 }, this),
                                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$button$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["Button"], {
@@ -3467,13 +3515,13 @@ function AdminMatchesPage() {
                                                     children: "Add Goal"
                                                 }, void 0, false, {
                                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                    lineNumber: 903,
+                                                    lineNumber: 918,
                                                     columnNumber: 18
                                                 }, this)
                                             ]
                                         }, void 0, true, {
                                             fileName: "[project]/src/app/admin/matches/page.tsx",
-                                            lineNumber: 892,
+                                            lineNumber: 907,
                                             columnNumber: 15
                                         }, this),
                                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -3486,14 +3534,14 @@ function AdminMatchesPage() {
                                                             className: "h-4 w-4 mr-1 text-yellow-500"
                                                         }, void 0, false, {
                                                             fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                            lineNumber: 907,
+                                                            lineNumber: 922,
                                                             columnNumber: 74
                                                         }, this),
                                                         "Add Card Event"
                                                     ]
                                                 }, void 0, true, {
                                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                    lineNumber: 907,
+                                                    lineNumber: 922,
                                                     columnNumber: 18
                                                 }, this),
                                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$select$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["Select"], {
@@ -3505,12 +3553,12 @@ function AdminMatchesPage() {
                                                                 placeholder: "Select Player for Card"
                                                             }, void 0, false, {
                                                                 fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                lineNumber: 909,
+                                                                lineNumber: 924,
                                                                 columnNumber: 36
                                                             }, this)
                                                         }, void 0, false, {
                                                             fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                            lineNumber: 909,
+                                                            lineNumber: 924,
                                                             columnNumber: 21
                                                         }, this),
                                                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$select$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["SelectContent"], {
@@ -3525,18 +3573,18 @@ function AdminMatchesPage() {
                                                                     ]
                                                                 }, p.id, true, {
                                                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                    lineNumber: 912,
+                                                                    lineNumber: 927,
                                                                     columnNumber: 30
                                                                 }, this))
                                                         }, void 0, false, {
                                                             fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                            lineNumber: 910,
+                                                            lineNumber: 925,
                                                             columnNumber: 21
                                                         }, this)
                                                     ]
                                                 }, void 0, true, {
                                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                    lineNumber: 908,
+                                                    lineNumber: 923,
                                                     columnNumber: 18
                                                 }, this),
                                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$select$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["Select"], {
@@ -3548,12 +3596,12 @@ function AdminMatchesPage() {
                                                                 placeholder: "Select Card Type"
                                                             }, void 0, false, {
                                                                 fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                lineNumber: 917,
+                                                                lineNumber: 932,
                                                                 columnNumber: 36
                                                             }, this)
                                                         }, void 0, false, {
                                                             fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                            lineNumber: 917,
+                                                            lineNumber: 932,
                                                             columnNumber: 21
                                                         }, this),
                                                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$select$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["SelectContent"], {
@@ -3563,7 +3611,7 @@ function AdminMatchesPage() {
                                                                     children: "Yellow"
                                                                 }, void 0, false, {
                                                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                    lineNumber: 919,
+                                                                    lineNumber: 934,
                                                                     columnNumber: 25
                                                                 }, this),
                                                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$select$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["SelectItem"], {
@@ -3571,19 +3619,19 @@ function AdminMatchesPage() {
                                                                     children: "Red"
                                                                 }, void 0, false, {
                                                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                    lineNumber: 920,
+                                                                    lineNumber: 935,
                                                                     columnNumber: 25
                                                                 }, this)
                                                             ]
                                                         }, void 0, true, {
                                                             fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                            lineNumber: 918,
+                                                            lineNumber: 933,
                                                             columnNumber: 21
                                                         }, this)
                                                     ]
                                                 }, void 0, true, {
                                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                    lineNumber: 916,
+                                                    lineNumber: 931,
                                                     columnNumber: 18
                                                 }, this),
                                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$input$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["Input"], {
@@ -3593,7 +3641,7 @@ function AdminMatchesPage() {
                                                     onChange: (e)=>setCardTime(e.target.value)
                                                 }, void 0, false, {
                                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                    lineNumber: 923,
+                                                    lineNumber: 938,
                                                     columnNumber: 18
                                                 }, this),
                                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$textarea$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["Textarea"], {
@@ -3603,7 +3651,7 @@ function AdminMatchesPage() {
                                                     className: "min-h-[60px]"
                                                 }, void 0, false, {
                                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                    lineNumber: 924,
+                                                    lineNumber: 939,
                                                     columnNumber: 18
                                                 }, this),
                                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$button$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["Button"], {
@@ -3614,13 +3662,13 @@ function AdminMatchesPage() {
                                                     children: "Add Card"
                                                 }, void 0, false, {
                                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                    lineNumber: 925,
+                                                    lineNumber: 940,
                                                     columnNumber: 18
                                                 }, this)
                                             ]
                                         }, void 0, true, {
                                             fileName: "[project]/src/app/admin/matches/page.tsx",
-                                            lineNumber: 906,
+                                            lineNumber: 921,
                                             columnNumber: 15
                                         }, this),
                                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])("div", {
@@ -3633,14 +3681,14 @@ function AdminMatchesPage() {
                                                             className: "h-4 w-4 mr-1 text-blue-500"
                                                         }, void 0, false, {
                                                             fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                            lineNumber: 929,
+                                                            lineNumber: 944,
                                                             columnNumber: 74
                                                         }, this),
                                                         "Add Substitution Event"
                                                     ]
                                                 }, void 0, true, {
                                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                    lineNumber: 929,
+                                                    lineNumber: 944,
                                                     columnNumber: 18
                                                 }, this),
                                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$select$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["Select"], {
@@ -3652,12 +3700,12 @@ function AdminMatchesPage() {
                                                                 placeholder: "Select Player Out"
                                                             }, void 0, false, {
                                                                 fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                lineNumber: 931,
+                                                                lineNumber: 946,
                                                                 columnNumber: 36
                                                             }, this)
                                                         }, void 0, false, {
                                                             fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                            lineNumber: 931,
+                                                            lineNumber: 946,
                                                             columnNumber: 21
                                                         }, this),
                                                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$select$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["SelectContent"], {
@@ -3672,18 +3720,18 @@ function AdminMatchesPage() {
                                                                     ]
                                                                 }, p.id, true, {
                                                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                    lineNumber: 934,
+                                                                    lineNumber: 949,
                                                                     columnNumber: 30
                                                                 }, this))
                                                         }, void 0, false, {
                                                             fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                            lineNumber: 932,
+                                                            lineNumber: 947,
                                                             columnNumber: 21
                                                         }, this)
                                                     ]
                                                 }, void 0, true, {
                                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                    lineNumber: 930,
+                                                    lineNumber: 945,
                                                     columnNumber: 18
                                                 }, this),
                                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$select$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["Select"], {
@@ -3695,12 +3743,12 @@ function AdminMatchesPage() {
                                                                 placeholder: "Select Player In"
                                                             }, void 0, false, {
                                                                 fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                lineNumber: 939,
+                                                                lineNumber: 954,
                                                                 columnNumber: 36
                                                             }, this)
                                                         }, void 0, false, {
                                                             fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                            lineNumber: 939,
+                                                            lineNumber: 954,
                                                             columnNumber: 21
                                                         }, this),
                                                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$select$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["SelectContent"], {
@@ -3715,18 +3763,18 @@ function AdminMatchesPage() {
                                                                     ]
                                                                 }, p.id, true, {
                                                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                                    lineNumber: 942,
+                                                                    lineNumber: 957,
                                                                     columnNumber: 30
                                                                 }, this))
                                                         }, void 0, false, {
                                                             fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                            lineNumber: 940,
+                                                            lineNumber: 955,
                                                             columnNumber: 21
                                                         }, this)
                                                     ]
                                                 }, void 0, true, {
                                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                    lineNumber: 938,
+                                                    lineNumber: 953,
                                                     columnNumber: 18
                                                 }, this),
                                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$input$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["Input"], {
@@ -3736,7 +3784,7 @@ function AdminMatchesPage() {
                                                     onChange: (e)=>setSubTime(e.target.value)
                                                 }, void 0, false, {
                                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                    lineNumber: 946,
+                                                    lineNumber: 961,
                                                     columnNumber: 18
                                                 }, this),
                                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$button$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["Button"], {
@@ -3747,19 +3795,19 @@ function AdminMatchesPage() {
                                                     children: "Add Substitution"
                                                 }, void 0, false, {
                                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                    lineNumber: 947,
+                                                    lineNumber: 962,
                                                     columnNumber: 18
                                                 }, this)
                                             ]
                                         }, void 0, true, {
                                             fileName: "[project]/src/app/admin/matches/page.tsx",
-                                            lineNumber: 928,
+                                            lineNumber: 943,
                                             columnNumber: 15
                                         }, this)
                                     ]
                                 }, void 0, true, {
                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                    lineNumber: 866,
+                                    lineNumber: 881,
                                     columnNumber: 13
                                 }, this),
                                 /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$dialog$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["DialogFooter"], {
@@ -3773,12 +3821,12 @@ function AdminMatchesPage() {
                                                 children: "Cancel"
                                             }, void 0, false, {
                                                 fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                lineNumber: 952,
+                                                lineNumber: 967,
                                                 columnNumber: 19
                                             }, this)
                                         }, void 0, false, {
                                             fileName: "[project]/src/app/admin/matches/page.tsx",
-                                            lineNumber: 951,
+                                            lineNumber: 966,
                                             columnNumber: 17
                                         }, this),
                                         /*#__PURE__*/ (0, __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$next$2f$dist$2f$compiled$2f$react$2f$jsx$2d$dev$2d$runtime$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["jsxDEV"])(__TURBOPACK__imported__module__$5b$project$5d2f$src$2f$components$2f$ui$2f$button$2e$tsx__$5b$app$2d$client$5d$__$28$ecmascript$29$__["Button"], {
@@ -3791,7 +3839,7 @@ function AdminMatchesPage() {
                                                         className: "mr-2 h-4 w-4 animate-spin"
                                                     }, void 0, false, {
                                                         fileName: "[project]/src/app/admin/matches/page.tsx",
-                                                        lineNumber: 959,
+                                                        lineNumber: 974,
                                                         columnNumber: 42
                                                     }, this),
                                                     " Saving..."
@@ -3799,40 +3847,40 @@ function AdminMatchesPage() {
                                             }, void 0, true) : "Save All Changes"
                                         }, void 0, false, {
                                             fileName: "[project]/src/app/admin/matches/page.tsx",
-                                            lineNumber: 954,
+                                            lineNumber: 969,
                                             columnNumber: 17
                                         }, this)
                                     ]
                                 }, void 0, true, {
                                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                                    lineNumber: 950,
+                                    lineNumber: 965,
                                     columnNumber: 13
                                 }, this)
                             ]
                         }, void 0, true, {
                             fileName: "[project]/src/app/admin/matches/page.tsx",
-                            lineNumber: 696,
+                            lineNumber: 711,
                             columnNumber: 13
                         }, this)
                     ]
                 }, void 0, true, {
                     fileName: "[project]/src/app/admin/matches/page.tsx",
-                    lineNumber: 690,
+                    lineNumber: 705,
                     columnNumber: 9
                 }, this)
             }, void 0, false, {
                 fileName: "[project]/src/app/admin/matches/page.tsx",
-                lineNumber: 689,
+                lineNumber: 704,
                 columnNumber: 7
             }, this)
         ]
     }, void 0, true, {
         fileName: "[project]/src/app/admin/matches/page.tsx",
-        lineNumber: 495,
+        lineNumber: 510,
         columnNumber: 5
     }, this);
 }
-_s(AdminMatchesPage, "ArcceVG7fXJbXJVrOY8Hjy3HXmc=", false, function() {
+_s(AdminMatchesPage, "GixSlyHPGV8jfk0E+sDXF8bAJHM=", false, function() {
     return [
         __TURBOPACK__imported__module__$5b$project$5d2f$src$2f$hooks$2f$use$2d$toast$2e$ts__$5b$app$2d$client$5d$__$28$ecmascript$29$__["useToast"],
         __TURBOPACK__imported__module__$5b$project$5d2f$node_modules$2f$react$2d$hook$2d$form$2f$dist$2f$index$2e$esm$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__["useForm"],
