@@ -10,7 +10,7 @@ import Link from 'next/link';
 import TournamentLogo from '@/components/common/TournamentLogo';
 import { ThemeToggle } from '@/components/common/ThemeToggle';
 import { useIsMobile } from '@/hooks/use-is-mobile';
-import { Sheet, SheetContent, SheetTrigger, SheetTitle } from '@/components/ui/sheet'; // Added SheetTitle
+import { Sheet, SheetContent, SheetTrigger, SheetTitle } from '@/components/ui/sheet';
 import { Menu } from 'lucide-react';
 
 const adminNavItems = [
@@ -54,22 +54,16 @@ export default function AdminLayout({
   }
   
   if (!isAuthenticated && shouldRedirectToLogin && !pathname.startsWith('/admin/login')) {
-    return null; // Redirect is being handled by useEffect
+    return null; 
   }
   
-  // Allow login page to render if not authenticated or still loading
   if (pathname === '/admin/login') {
-     // If authenticated, useEffect will redirect from login.
-     // Otherwise, render PinForm (children).
     return <>{children}</>;
   }
 
 
   const AdminSidebarContentComponent = () => (
     <>
-      {/* Accessible Title for the Sheet, only for screen readers */}
-      <SheetTitle className="sr-only">Admin Navigation Menu</SheetTitle>
-
       <div className="mb-8 px-4 pt-4">
          <Link href="/admin/dashboard" onClick={() => isMobile && setMobileNavOpen(false)}>
             <TournamentLogo appName="Admin Panel" />
@@ -137,6 +131,8 @@ export default function AdminLayout({
           </main>
         </div>
         <SheetContent side="left" className="w-72 p-0 flex flex-col bg-background">
+          {/* Accessible Title for the Sheet, only for screen readers */}
+          <SheetTitle className="sr-only">Admin Navigation Menu</SheetTitle>
           <AdminSidebarContentComponent />
         </SheetContent>
       </Sheet>
