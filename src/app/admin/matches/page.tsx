@@ -297,142 +297,125 @@ export default function AdminMatchesPage() {
     toast({ title: "Event Removed (Locally)", description: "Save changes to persist."});
   };
   
-  const getOutcomeDelta = (score: number, opponentScore: number, increment: 1 | -1) => {
-    let dWon = 0, dDrawn = 0, dLost = 0, dPoints = 0;
-    if (score > opponentScore) {
-      dWon = increment;
-      dPoints = 3 * increment;
-    } else if (score < opponentScore) {
-      dLost = increment;
-    } else {
-      dDrawn = increment;
-      dPoints = 1 * increment;
+ const recalculateAndUpdateTeamGroupStats = useCallback(async (teamId: string, groupId: string) => {
+    // 1. Get all team_ids in the specified group
+    const { data: groupTeamIdsData, error: groupTeamIdsError } = await supabase
+      .from('group_teams')
+      .select('team_id')
+      .eq('group_id', groupId);
+
+    if (groupTeamIdsError) {
+      console.error(`Error fetching team IDs for group ${groupId}:`, groupTeamIdsError.message);
+      toast({ variant: "destructive", title: "Standings Error", description: `Could not fetch teams for group ${groupId}.` });
+      return;
     }
-    return { dWon, dDrawn, dLost, dPoints };
-  };
+    const teamIdsInGroup = groupTeamIdsData.map(gt => gt.team_id);
 
-  const syncGroupStandingsForMatch = useCallback(async (
-    teamAId: string,
-    teamBId: string,
-    newScoreForTeamA: number, // Score of teamA in the match
-    newScoreForTeamB: number, // Score of teamB in the match
-    newStatus: Match['status'],
-    oldMatchDetails: { scoreA?: number, scoreB?: number, status: Match['status'] } // scoreA/B from Team A's perspective
-  ) => {
-    try {
-      let standingsActuallyUpdated = false;
-      const teamsToProcess = [
-        { teamId: teamAId, currentScore: newScoreForTeamA, opponentScore: newScoreForTeamB, oldScore: oldMatchDetails.scoreA, oldOpponentScore: oldMatchDetails.scoreB },
-        { teamId: teamBId, currentScore: newScoreForTeamB, opponentScore: newScoreForTeamA, oldScore: oldMatchDetails.scoreB, oldOpponentScore: oldMatchDetails.scoreA },
-      ];
+    // 2. Fetch all 'completed' matches for the current teamId against other teams in the same group
+    const { data: completedMatches, error: matchesError } = await supabase
+      .from('matches')
+      .select('team_a_id, team_b_id, score_a, score_b')
+      .eq('status', 'completed')
+      .or(`and(team_a_id.eq.${teamId},team_b_id.in.(${teamIdsInGroup.filter(id => id !== teamId).join(',')})),and(team_b_id.eq.${teamId},team_a_id.in.(${teamIdsInGroup.filter(id => id !== teamId).join(',')}))`);
 
-      for (const { teamId, currentScore, opponentScore, oldScore, oldOpponentScore } of teamsToProcess) {
-        const { data: groupTeamEntries, error: fetchError } = await supabase
-          .from('group_teams')
-          .select('*')
-          .eq('team_id', teamId);
 
-        if (fetchError) {
-          console.error(`Standings Sync: Error fetching group standings for team ${teamId}: ${fetchError.message}`);
-          continue;
-        }
-        
-        if (groupTeamEntries && groupTeamEntries.length > 0) {
-          for (const groupTeamEntry of groupTeamEntries) {
-            const updates: { 
-                played: number; goals_for: number; goals_against: number; 
-                won: number; drawn: number; lost: number; points: number 
-            } = {
-              played: groupTeamEntry.played || 0,
-              goals_for: groupTeamEntry.goals_for || 0,
-              goals_against: groupTeamEntry.goals_against || 0,
-              won: groupTeamEntry.won || 0,
-              drawn: groupTeamEntry.drawn || 0,
-              lost: groupTeamEntry.lost || 0,
-              points: groupTeamEntry.points || 0,
-            };
-            let needsDbUpdate = false;
-
-            // Step 1: If the match was previously 'completed', undo its contribution to stats.
-            if (oldMatchDetails.status === 'completed') {
-              needsDbUpdate = true;
-              updates.played -= 1;
-              updates.goals_for -= (oldScore ?? 0);
-              updates.goals_against -= (oldOpponentScore ?? 0);
-              const oldOutcome = getOutcomeDelta(oldScore ?? 0, oldOpponentScore ?? 0, -1); // -1 to subtract
-              updates.won += oldOutcome.dWon;
-              updates.drawn += oldOutcome.dDrawn;
-              updates.lost += oldOutcome.dLost;
-              updates.points += oldOutcome.dPoints;
-            }
-
-            // Step 2: If the match's new status is 'completed', apply its new contribution.
-            if (newStatus === 'completed') {
-              needsDbUpdate = true;
-              updates.played += 1; 
-              updates.goals_for += currentScore; 
-              updates.goals_against += opponentScore;
-              
-              const newOutcome = getOutcomeDelta(currentScore, opponentScore, 1); // +1 to add
-              updates.won += newOutcome.dWon;
-              updates.drawn += newOutcome.dDrawn;
-              updates.lost += newOutcome.dLost;
-              updates.points += newOutcome.dPoints;
-            }
-            
-            if (needsDbUpdate) {
-              updates.played = Math.max(0, updates.played);
-              updates.won = Math.max(0, updates.won);
-              updates.drawn = Math.max(0, updates.drawn);
-              updates.lost = Math.max(0, updates.lost);
-              updates.points = Math.max(0, updates.points);
-              updates.goals_for = Math.max(0, updates.goals_for);
-              updates.goals_against = Math.max(0, updates.goals_against);
-
-              const { error: updateError } = await supabase
-                .from('group_teams')
-                .update({
-                  played: updates.played,
-                  won: updates.won,
-                  drawn: updates.drawn,
-                  lost: updates.lost,
-                  goals_for: updates.goals_for,
-                  goals_against: updates.goals_against,
-                  points: updates.points,
-                })
-                .eq('id', groupTeamEntry.id);
-
-              if (updateError) {
-                console.error(`Standings Sync: Error updating group standings for team ${teamId} (entry ${groupTeamEntry.id}): ${updateError.message}`);
-                toast({ variant: "destructive", title: "Standings Update Error", description: `Failed to update standings for team ID ${teamId}.` });
-              } else {
-                standingsActuallyUpdated = true;
-              }
-            }
-          }
-        }
-      }
-      if (standingsActuallyUpdated) {
-         toast({ title: "Group Standings Synchronized", description: "Relevant group standings have been updated." });
-      }
-    } catch (error: any) {
-      console.error("Standings Sync: Unexpected error:", error);
-      toast({ variant: "destructive", title: "Standings Logic Error", description: error.message || "An unexpected error occurred while updating standings." });
+    if (matchesError) {
+      console.error(`Error fetching completed matches for team ${teamId} in group ${groupId}:`, matchesError.message);
+      toast({ variant: "destructive", title: "Standings Error", description: `Could not fetch matches for team ${teamId}.` });
+      return;
     }
-  }, [toast, supabase]);
+    
+    let played = 0;
+    let won = 0;
+    let drawn = 0;
+    let lost = 0;
+    let goalsFor = 0;
+    let goalsAgainst = 0;
+
+    for (const match of completedMatches) {
+      played++;
+      let currentTeamScore = 0;
+      let opponentScore = 0;
+
+      if (match.team_a_id === teamId) {
+        currentTeamScore = match.score_a ?? 0;
+        opponentScore = match.score_b ?? 0;
+      } else {
+        currentTeamScore = match.score_b ?? 0;
+        opponentScore = match.score_a ?? 0;
+      }
+
+      goalsFor += currentTeamScore;
+      goalsAgainst += opponentScore;
+
+      if (currentTeamScore > opponentScore) {
+        won++;
+      } else if (currentTeamScore < opponentScore) {
+        lost++;
+      } else {
+        drawn++;
+      }
+    }
+
+    const points = (won * 3) + (drawn * 1);
+
+    // Update the group_teams table
+    const { error: updateError } = await supabase
+      .from('group_teams')
+      .update({
+        played,
+        won,
+        drawn,
+        lost,
+        goals_for: goalsFor,
+        goals_against: goalsAgainst,
+        points,
+      })
+      .eq('team_id', teamId)
+      .eq('group_id', groupId);
+
+    if (updateError) {
+      console.error(`Error updating standings for team ${teamId} in group ${groupId}:`, updateError.message);
+      toast({ variant: "destructive", title: "Standings Update Failed", description: `Failed to update standings for team ${teamId}.` });
+    }
+  }, [supabase, toast]);
+
+  const triggerStandingsRecalculation = useCallback(async (teamAId: string, teamBId: string) => {
+    const teamsToUpdate = [teamAId, teamBId];
+    let standingsActuallyUpdated = false;
+
+    for (const teamId of teamsToUpdate) {
+      const { data: teamGroups, error: teamGroupsError } = await supabase
+        .from('group_teams')
+        .select('group_id')
+        .eq('team_id', teamId);
+
+      if (teamGroupsError) {
+        console.error(`Error fetching groups for team ${teamId}:`, teamGroupsError.message);
+        continue;
+      }
+
+      for (const groupEntry of teamGroups) {
+        await recalculateAndUpdateTeamGroupStats(teamId, groupEntry.group_id);
+        standingsActuallyUpdated = true;
+      }
+    }
+    if (standingsActuallyUpdated) {
+        toast({ title: "Group Standings Synchronized", description: "Relevant group standings have been recalculated and updated." });
+    }
+
+  }, [supabase, toast, recalculateAndUpdateTeamGroupStats]);
 
 
   const onUpdateMatchSubmit: SubmitHandler<UpdateMatchFormValues> = async (data) => {
     if (!selectedMatch) return;
     setIsUpdatingMatch(true);
     
-    const oldMatchDetails = { 
-      scoreA: selectedMatch.scoreA, 
-      scoreB: selectedMatch.scoreB, 
-      status: selectedMatch.status 
-    };
+    const originalStatus = selectedMatch.status;
+    const originalScoreA = selectedMatch.scoreA;
+    const originalScoreB = selectedMatch.scoreB;
 
-    const updatedMatchPayload: Partial<SupabaseMatch> = {
+    const updatedMatchPayload: Partial<SupabaseMatch> & {team_a_id?: string, team_b_id?: string, date_time?:string, venue?:string} = {
       score_a: (data.status !== 'scheduled' ) ? (data.scoreA ?? selectedMatch.scoreA ?? 0) : null,
       score_b: (data.status !== 'scheduled' ) ? (data.scoreB ?? selectedMatch.scoreB ?? 0) : null,
       status: data.status,
@@ -441,12 +424,15 @@ export default function AdminMatchesPage() {
       player_of_the_match_id: data.playerOfTheMatchId === "NONE_SELECTED_POTM_VALUE" ? null : data.playerOfTheMatchId || null,
     };
     
-    if (selectedMatch.status === 'scheduled' || oldMatchDetails.status === 'scheduled') {
+    // If the match was previously scheduled, allow these core details to be updated
+    // This is to handle cases where a scheduled match details (like teams, time, venue) might change before it goes live.
+    if (originalStatus === 'scheduled') {
         updatedMatchPayload.team_a_id = selectedMatch.teamA.id;
         updatedMatchPayload.team_b_id = selectedMatch.teamB.id;
         updatedMatchPayload.date_time = new Date(selectedMatch.dateTime).toISOString();
         updatedMatchPayload.venue = selectedMatch.venue;
     }
+
 
     const { data: updatedMatchFromDb, error } = await supabase
       .from('matches')
@@ -460,14 +446,16 @@ export default function AdminMatchesPage() {
     } else if (updatedMatchFromDb) {
       const locallyMappedUpdatedMatch = mapSupabaseMatchToLocal(updatedMatchFromDb as SupabaseMatch, teams, allPlayers);
       
-      await syncGroupStandingsForMatch(
-        selectedMatch.teamA.id,
-        selectedMatch.teamB.id,
-        updatedMatchFromDb.score_a ?? 0, // This is new score for Team A
-        updatedMatchFromDb.score_b ?? 0, // This is new score for Team B
-        updatedMatchFromDb.status,
-        oldMatchDetails 
-      );
+      // Determine if standings need recalculation
+      const statusChangedToOrFromCompleted = (originalStatus === 'completed' && updatedMatchFromDb.status !== 'completed') ||
+                                           (originalStatus !== 'completed' && updatedMatchFromDb.status === 'completed');
+      const scoreChangedWhileCompleted = originalStatus === 'completed' && 
+                                          updatedMatchFromDb.status === 'completed' &&
+                                          (originalScoreA !== updatedMatchFromDb.score_a || originalScoreB !== updatedMatchFromDb.score_b);
+
+      if (statusChangedToOrFromCompleted || scoreChangedWhileCompleted || updatedMatchFromDb.status === 'completed') {
+        await triggerStandingsRecalculation(selectedMatch.teamA.id, selectedMatch.teamB.id);
+      }
       
       setMatches(prevMatches =>
         prevMatches.map(m =>
@@ -487,17 +475,11 @@ export default function AdminMatchesPage() {
 
   const handleDeleteMatch = async (matchId: string, matchIdentifier: string) => {
     const matchToDelete = matches.find(m => m.id === matchId);
-    if (matchToDelete && matchToDelete.status === 'completed') {
-        // Treat deletion of a completed match as setting its scores to 0 and status to 'scheduled' for stat reversal
-        await syncGroupStandingsForMatch(
-            matchToDelete.teamA.id,
-            matchToDelete.teamB.id,
-            0, 
-            0, 
-            'scheduled', 
-            { scoreA: matchToDelete.scoreA, scoreB: matchToDelete.scoreB, status: 'completed' } 
-        );
-    }
+    
+    // Store team IDs before deletion for standings recalculation
+    const teamAId = matchToDelete?.teamA.id;
+    const teamBId = matchToDelete?.teamB.id;
+    const wasCompleted = matchToDelete?.status === 'completed';
 
     const { error } = await supabase
         .from('matches')
@@ -509,6 +491,11 @@ export default function AdminMatchesPage() {
     } else {
         setMatches(prevMatches => prevMatches.filter(m => m.id !== matchId));
         toast({ title: "Match Deleted", description: `Match: ${matchIdentifier} has been removed.` });
+        
+        // If the deleted match was completed, recalculate standings for the involved teams
+        if (wasCompleted && teamAId && teamBId) {
+            await triggerStandingsRecalculation(teamAId, teamBId);
+        }
     }
   };
   
@@ -737,6 +724,7 @@ export default function AdminMatchesPage() {
                                 <FormLabel>Team A (Scheduled)</FormLabel>
                                 <Select 
                                     onValueChange={(value) => {
+                                        field.onChange(value); // RHF update
                                         setSelectedMatch(prev => prev ? {...prev, teamA: teams.find(t => t.id === value) || prev.teamA} : null);
                                     }} 
                                     defaultValue={selectedMatch.teamA.id} 
@@ -763,6 +751,7 @@ export default function AdminMatchesPage() {
                                 <FormLabel>Team B (Scheduled)</FormLabel>
                                  <Select 
                                     onValueChange={(value) => {
+                                        field.onChange(value); // RHF update
                                         setSelectedMatch(prev => prev ? {...prev, teamB: teams.find(t => t.id === value) || prev.teamB} : null);
                                     }} 
                                     defaultValue={selectedMatch.teamB.id} 
@@ -786,14 +775,21 @@ export default function AdminMatchesPage() {
                             <Input 
                                 type="datetime-local" 
                                 defaultValue={new Date(new Date(selectedMatch.dateTime).getTime() - new Date(selectedMatch.dateTime).getTimezoneOffset() * 60000).toISOString().slice(0, 16)}
-                                onChange={(e) => setSelectedMatch(prev => prev ? {...prev, dateTime: new Date(e.target.value)} : null)}
+                                onChange={(e) => {
+                                    const newDateTime = new Date(e.target.value);
+                                    setSelectedMatch(prev => prev ? {...prev, dateTime: newDateTime} : null);
+                                    // If using RHF for these fields, update RHF as well if they are part of updateMatchSchema
+                                }}
                             />
                         </FormItem>
                         <FormItem>
                             <FormLabel>Venue (Scheduled)</FormLabel>
                             <Input 
                                 defaultValue={selectedMatch.venue}
-                                onChange={(e) => setSelectedMatch(prev => prev ? {...prev, venue: e.target.value} : null)}
+                                onChange={(e) => {
+                                   setSelectedMatch(prev => prev ? {...prev, venue: e.target.value} : null);
+                                    // If using RHF for these fields, update RHF as well
+                                }}
                             />
                         </FormItem>
                     </>
@@ -995,4 +991,6 @@ export default function AdminMatchesPage() {
     </div>
   );
 }
+    
+
     
