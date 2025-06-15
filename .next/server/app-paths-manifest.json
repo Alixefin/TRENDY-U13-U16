@@ -1,11 +1,8 @@
 {
   "/(user)/match/[id]/page": "app/(user)/match/[id]/page.js",
   "/(user)/matches/page": "app/(user)/matches/page.js",
-  "/(user)/tournament/page": "app/(user)/tournament/page.js",
   "/admin/dashboard/page": "app/admin/dashboard/page.js",
   "/admin/login/page": "app/admin/login/page.js",
   "/admin/matches/page": "app/admin/matches/page.js",
-  "/admin/teams/page": "app/admin/teams/page.js",
-  "/favicon.ico/route": "app/favicon.ico/route.js",
   "/page": "app/page.js"
 }

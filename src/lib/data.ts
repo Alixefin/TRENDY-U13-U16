@@ -65,15 +65,21 @@ export const getMatchById = async (id: string): Promise<Match | null | undefined
     { id: 'unknownB', name: 'Unknown Team B', logoUrl: placeholderTeamLogo('?'), coachName: 'N/A', players: [] };
 
   let lineupA: Player[] = [];
-  if (matchData.lineup_a_player_ids && teamA.players.length > 0) {
+  if (matchData.lineup_a_player_ids && matchData.lineup_a_player_ids.length > 0 && teamA.players.length > 0) {
     const lineupIdsA = new Set(matchData.lineup_a_player_ids);
     lineupA = teamA.players.filter(p => lineupIdsA.has(p.id));
+  } else if (teamA.players.length > 0) {
+    // Fallback: use first 11 players from roster if specific lineup IDs aren't set
+    lineupA = teamA.players.slice(0, 11);
   }
   
   let lineupB: Player[] = [];
-  if (matchData.lineup_b_player_ids && teamB.players.length > 0) {
+  if (matchData.lineup_b_player_ids && matchData.lineup_b_player_ids.length > 0 && teamB.players.length > 0) {
      const lineupIdsB = new Set(matchData.lineup_b_player_ids);
      lineupB = teamB.players.filter(p => lineupIdsB.has(p.id));
+  } else if (teamB.players.length > 0) {
+    // Fallback: use first 11 players from roster
+    lineupB = teamB.players.slice(0, 11);
   }
 
   const playerOfTheMatch = matchData.playerOfTheMatch ? {
@@ -110,3 +116,4 @@ export const mockTournamentInfo: TournamentInfo = {
   about: "Fallback tournament description. Configure in admin panel.",
   knockoutImageUrl: `https://placehold.co/800x500/F0FAF4/50C878.png?text=Knockout+Diagram&font=poppins`,
 };
+
