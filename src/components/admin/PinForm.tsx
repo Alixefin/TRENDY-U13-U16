@@ -1,8 +1,9 @@
+
 "use client";
 
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useForm, SubmitHandler } from 'react-hook-form';
+import { useForm, type SubmitHandler } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { Button } from '@/components/ui/button';
@@ -11,7 +12,8 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { useToast } from '@/hooks/use-toast';
 import { checkAdminPin, setAdminAuthenticated } from '@/lib/adminAuth';
-import { LockKeyhole } from 'lucide-react';
+import { LockKeyhole, ArrowLeft } from 'lucide-react';
+import Link from 'next/link';
 
 const pinFormSchema = z.object({
   pin: z.string().length(4, { message: "PIN must be 4 digits." }).regex(/^\d{4}$/, { message: "PIN must be numeric." }),
@@ -84,9 +86,15 @@ const PinForm: React.FC = () => {
                 )}
               />
             </CardContent>
-            <CardFooter>
+            <CardFooter className="flex flex-col gap-2">
               <Button type="submit" className="w-full" disabled={isSubmitting}>
                 {isSubmitting ? 'Verifying...' : 'Unlock'}
+              </Button>
+              <Button variant="outline" className="w-full" asChild>
+                <Link href="/matches">
+                  <ArrowLeft className="mr-2 h-4 w-4" />
+                  Return
+                </Link>
               </Button>
             </CardFooter>
           </form>
